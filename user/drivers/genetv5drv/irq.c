@@ -3,8 +3,8 @@
 
 Err GenetIrqInit(void)
 {
-    g_genet.intrl2_0->mask_set = 0xffffffff;
-    g_genet.intrl2_0->clear = 0xffffffff;
+    g_genet.intrl2_0->mask_set = GENET_IRQ_ALL;
+    g_genet.intrl2_0->clear = GENET_IRQ_ALL;
 
     g_genet.event = CreateEvent();
     if (g_genet.event < 0) {

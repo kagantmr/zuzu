@@ -2,20 +2,46 @@
 #include "genet.h"
 #include <util/log.h>
 
-#define ANEG_POLL_MS 100
-#define ANEG_TIMEOUT_MS 15000
-#define ADVERTISE_1000 1
-
-Err PhyNegotiate(void)
+/** @brief Log the RGMII block and the BCM54213PE's clock delay settings; read-only. */
+static void PhyLogRgmii(void)
 {
-    uint16_t ctrl1000 = 0, bmsr = 0;
-    Err rc = MdioRead(MII_CTRL1000, &ctrl1000);
+    uint16_t aux = 0, clk = 0;
+    Err rc = MdioWrite(MII_BCM_AUX_CTL, BCM_AUXCTL_SHDWSEL_MISC |
+                                            (BCM_AUXCTL_SHDWSEL_MISC << BCM_AUXCTL_READ_SHIFT));
     if (rc == ZUZU_OK)
-        rc = MdioWrite(MII_ADVERTISE,
-                       ADV_CSMA | ADV_10HALF | ADV_10FULL | ADV_100HALF | ADV_100FULL);
+        rc = MdioRead(MII_BCM_AUX_CTL, &aux);
     if (rc == ZUZU_OK)
-        rc = MdioWrite(MII_CTRL1000, (uint16_t)((ctrl1000 & ~(CTRL1000_HALF | CTRL1000_FULL)) |
-                                                (ADVERTISE_1000 ? CTRL1000_FULL : 0)));
+        rc = MdioWrite(MII_BCM_SHADOW, BCM_SHADOW_CLK_CTRL << BCM_SHADOW_SELECT_SHIFT);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_BCM_SHADOW, &clk);
+    LOG_DEBUG(LOG_TAG, "RGMII oob_ctrl %08x, PHY aux-misc %04x clk-ctrl %04x (rc %d)",
+              g_genet.ext->rgmii_oob_ctrl, aux, clk, rc);
+}
+
+Err PhyStartAutoNeg(void)
+{
+    uint16_t ctrl1000 = 0, bmsr = 0, estatus = 0;
+    PhyLogRgmii();
+    Err rc = MdioRead(MII_BMSR, &bmsr);
+    if (rc == ZUZU_OK && (bmsr & BMSR_ESTATEN))
+        rc = MdioRead(MII_ESTATUS, &estatus);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_CTRL1000, &ctrl1000);
+
+    uint16_t adv1000 = 0;
+    if (estatus & ESTATUS_1000_TFULL)
+        adv1000 |= CTRL1000_FULL;
+    if (estatus & ESTATUS_1000_THALF)
+        adv1000 |= CTRL1000_HALF;
+    LOG_DEBUG(LOG_TAG, "PHY 1000BASE-T: full %d half %d", !!(adv1000 & CTRL1000_FULL),
+              !!(adv1000 & CTRL1000_HALF));
+
+    if (rc == ZUZU_OK)
+        rc = MdioWrite(MII_ADVERTISE, ADV_CSMA | ADV_10HALF | ADV_10FULL | ADV_100HALF |
+                                          ADV_100FULL | ADV_PAUSE_CAP | ADV_PAUSE_ASYM);
+    if (rc == ZUZU_OK)
+        rc = MdioWrite(MII_CTRL1000,
+                       (uint16_t)((ctrl1000 & ~(CTRL1000_HALF | CTRL1000_FULL)) | adv1000));
     if (rc == ZUZU_OK)
         rc = MdioWrite(MII_BMCR, BMCR_ANENABLE | BMCR_ANRESTART);
     if (rc != ZUZU_OK) {
@@ -23,34 +49,18 @@ Err PhyNegotiate(void)
         return rc;
     }
 
-    for (uint32_t ms = 0; ms < ANEG_TIMEOUT_MS; ms += ANEG_POLL_MS) {
-        Sleep(ANEG_POLL_MS);
-        rc = MdioRead(MII_BMSR, &bmsr);
-        if (rc == ZUZU_OK)
-            rc = MdioRead(MII_BMSR, &bmsr);
-        if (rc != ZUZU_OK) {
-            LOG_ERROR(LOG_TAG, "MDIO read failed: %s", StrToError(rc));
-            return rc;
-        }
-        if ((bmsr & BMSR_LSTATUS) && (bmsr & BMSR_ANEGCOMPLETE)) {
-            LOG_DEBUG(LOG_TAG, "autonegotiation done after %u ms", ms + ANEG_POLL_MS);
-            return ZUZU_OK;
-        }
-    }
-    LOG_ERROR(LOG_TAG, "autonegotiation timed out, bmsr %04x", bmsr);
-    return ERR_TIMEOUT;
+    return rc;
 }
 
 Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
 {
+    bool rx = false, tx = false;
     uint16_t id1 = 0, id2 = 0, bmsr = 0, adv = 0, lpa = 0, ctrl1000 = 0, stat1000 = 0;
     Err rc = MdioRead(MII_PHYSID1, &id1);
     if (rc == ZUZU_OK)
         rc = MdioRead(MII_PHYSID2, &id2);
     if (rc == ZUZU_OK)
-        rc = MdioRead(MII_BMSR, &bmsr);
-    if (rc == ZUZU_OK)
-        rc = MdioRead(MII_BMSR, &bmsr);
+        rc = MdioReadLatched(MII_BMSR, &bmsr);
     if (rc == ZUZU_OK)
         rc = MdioRead(MII_ADVERTISE, &adv);
     if (rc == ZUZU_OK)
@@ -63,16 +73,25 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
         LOG_ERROR(LOG_TAG, "MDIO read failed: %s", StrToError(rc));
         return rc;
     }
-    LOG_DEBUG(LOG_TAG, "PHY id %04x:%04x link %u aneg %u", id1, id2, !!(bmsr & BMSR_LSTATUS),
-              !!(bmsr & BMSR_ANEGCOMPLETE));
-
     if (!(bmsr & BMSR_LSTATUS) || !(bmsr & BMSR_ANEGCOMPLETE)) {
         LOG_ERROR(LOG_TAG, "no link");
         return ERR_NOTCONN;
     }
 
-    LOG_DEBUG(LOG_TAG, "adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", adv, lpa, ctrl1000,
-              stat1000);
+    if (adv & ADV_PAUSE_CAP) {
+        if (lpa & ADV_PAUSE_CAP)
+            rx = tx = true;
+        else if ((lpa & ADV_PAUSE_ASYM) && (adv & ADV_PAUSE_ASYM))
+            rx = true;
+    } else if ((adv & ADV_PAUSE_ASYM) && (lpa & ADV_PAUSE_CAP) && (lpa & ADV_PAUSE_ASYM)) {
+        tx = true;
+    }
+    g_genet.rx_pause = rx;
+    g_genet.tx_pause = tx;
+
+    LOG_DEBUG(LOG_TAG, "PHY id %04x:%04x adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", id1, id2,
+              adv, lpa, ctrl1000, stat1000);
+    LOG_DEBUG(LOG_TAG, "pause: rx %d tx %d", g_genet.rx_pause, g_genet.tx_pause);
     uint16_t common = adv & lpa;
     if ((ctrl1000 & CTRL1000_FULL) && (stat1000 & STAT1000_FULL)) {
         *umac_speed = UMAC_SPEED_1000;
@@ -84,13 +103,14 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
         *umac_speed = UMAC_SPEED_10;
         *mbps = 10;
     }
+
     return ZUZU_OK;
 }
 
 void PhyPollLink(void)
 {
     uint16_t bmsr = 0;
-    if (MdioRead(MII_BMSR, &bmsr) != ZUZU_OK || MdioRead(MII_BMSR, &bmsr) != ZUZU_OK)
+    if (MdioReadLatched(MII_BMSR, &bmsr) != ZUZU_OK)
         return;
     bool up = (bmsr & BMSR_LSTATUS) && (bmsr & BMSR_ANEGCOMPLETE);
     if (up == g_genet.link_up)

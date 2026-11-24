@@ -10,14 +10,18 @@
 extern "C" {
 #endif
 
+#include <net/nettypes.h>
+#include <net/protocols/nic.h>
 #include <stdint.h>
 
 /** @brief One-byte opcodes on netd's service port. */
 typedef enum {
     NETD_GET_NETIF = 1,       /**< Read the interface configuration (NetdNetif). */
-    NETD_DRVHANDSHAKE_INIT,   /**< Driver begins: grants its doorbell and sends its MAC. */
+    NETD_DRVHANDSHAKE_INIT,   /**< Driver begins: grants its doorbell and sends its MAC and a u64
+                                 driver key (0 = allocate fresh). */
     NETD_DRVHANDSHAKE_STAGE2, /**< Grants the tx ring's memory. */
-    NETD_DRVHANDSHAKE_STAGE3, /**< Grants the rx ring's memory; the reply holds the name and grants netd's event. */
+    NETD_DRVHANDSHAKE_STAGE3, /**< Grants the rx ring's memory; the reply holds the name and grants
+                                 netd's event. */
     NETD_DRVNOTIFY,           /**< Reserved; unused. */
     NETD_DRVWATCH,            /**< Reserved; unused. */
 
@@ -38,6 +42,9 @@ typedef enum {
     SOCKET_IP,    /**< Reserved: raw IP sockets. */
     SOCKET_FRAME, /**< Reserved: raw Ethernet sockets. */
 
+    NETD_SET_RXFILTER, /**< Replace the interface's receive filter (NetdRxFilter); the reply is an
+                          Err. */
+
     NETD_OPCODE_COUNT /**< Number of opcodes. */
 } NetdOpcode;
 
@@ -45,21 +52,6 @@ typedef enum {
 typedef struct {
     NetdOpcode op; /**< The opcode. */
 } NetdHandshakeData;
-
-/**
- * @brief Expands an IPv4 address in network byte order into four printf arguments, for
- * "%u.%u.%u.%u".
- */
-#define IP4(x)                                                                                     \
-    (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), (unsigned)(((x) >> 16) & 0xff),         \
-        (unsigned)(((x) >> 24) & 0xff)
-
-/** @brief IPv4 address in network byte order. */
-typedef uint32_t Ipv4Addr;
-/** @brief TCP or UDP port. */
-typedef uint16_t NetPort;
-/** @brief Ethernet MAC address. */
-typedef uint8_t MacAddr[6];
 
 /** @brief One network interface's configuration, as NETD_GET_NETIF returns it. */
 typedef struct {
@@ -69,8 +61,21 @@ typedef struct {
     Ipv4Addr dns;     /**< DNS server. */
     MacAddr mac;      /**< Hardware address. */
     char name[8];     /**< Interface name, NUL-terminated. */
+    uint32_t link_up; /**< Nonzero while the driver reports link. */
+    uint32_t stat[NIC_STAT_COUNT]; /**< Driver counters, indexed by NicStat; 0 with no driver. */
+    uint32_t rx_flags;    /**< Receive filter flags (NIC_CNTL_*) the driver was last given. */
+    uint32_t mcast_count; /**< Number of valid entries in mcast. */
+    MacAddr mcast[NIC_MCAST_MAX]; /**< Multicast addresses the driver was last given. */
 } NetdNetif;
 
+/** @brief Request for NETD_SET_RXFILTER: the whole receive filter, replacing the current one. */
+typedef struct {
+    uint8_t op;           /**< NETD_SET_RXFILTER. */
+    uint8_t _pad[3];      /**< Keeps the words below aligned. */
+    uint32_t flags;       /**< NIC_CNTL_PROMISC and NIC_CNTL_ALLMULTI; other bits are ignored. */
+    uint32_t mcast_count; /**< Number of entries in mcast, at most NIC_MCAST_MAX. */
+    MacAddr mcast[NIC_MCAST_MAX]; /**< Multicast addresses to accept. */
+} NetdRxFilter;
 
 #ifdef __cplusplus
 }

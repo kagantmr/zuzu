@@ -13,40 +13,65 @@ static Handle shm_tx_handle = -1, shm_rx_handle = -1;
 static Handle netd_bell = -1;
 static NicRing *nic_rx, *nic_tx;
 static NicStatsBlock *nic_block;
+static NicCntlBlock *nic_cntl_block;
 static volatile uint32_t *nic_stats;
 static char ifname[16];
 static bool rx_pushed;
 
+/** @brief Unmap and close whatever part of the packet rings exists, and reset the globals. */
+static void FreePacketRings(void)
+{
+    if (nic_tx)
+        MemUnmap(nic_tx);
+    if (nic_rx)
+        MemUnmap(nic_rx);
+    if (shm_tx_handle >= 0)
+        HandleClose(shm_tx_handle);
+    if (shm_rx_handle >= 0)
+        HandleClose(shm_rx_handle);
+    nic_tx = NULL;
+    nic_rx = NULL;
+    nic_block = NULL;
+    nic_stats = NULL;
+    shm_tx_handle = -1;
+    shm_rx_handle = -1;
+}
+
+/** @brief Create and map one shared ring; on error *h and *ring are left unset. */
+static Err CreateRing(Handle *h, NicRing **ring)
+{
+    Handle mem = CreateMem(NIC_SHM_BYTES / 4096, 0);
+    if (mem < 0) {
+        LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(mem));
+        return mem;
+    }
+    *h = mem;
+    void *va = MemMap(mem, 0, PROT_RW);
+    if (PtrIsErr(va)) {
+        LOG_ERROR(LOG_TAG, "MemMap on ring failed: %s", StrToError((Err)(VirtAddr)va));
+        return (Err)(VirtAddr)va;
+    }
+    *ring = (NicRing *)va;
+    return ZUZU_OK;
+}
+
 static Err InitPacketRings(void)
 {
-    shm_tx_handle = CreateMem(NIC_SHM_BYTES / 4096, 0);
-    if (shm_tx_handle < 0) {
-        LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(shm_tx_handle));
-        return shm_tx_handle;
-    }
-    void *shm_tx = MemMap(shm_tx_handle, 0, PROT_RW);
-    if (PtrIsErr(shm_tx)) {
-        LOG_ERROR(LOG_TAG, "MemMap on shm_tx failed: %s", StrToError((Err)(VirtAddr)shm_tx));
-        return (Err)(VirtAddr)shm_tx;
+    Err rc = CreateRing(&shm_tx_handle, &nic_tx);
+    if (rc == ZUZU_OK)
+        rc = CreateRing(&shm_rx_handle, &nic_rx);
+    if (rc != ZUZU_OK) {
+        FreePacketRings();
+        return rc;
     }
 
-    shm_rx_handle = CreateMem(NIC_SHM_BYTES / 4096, 0);
-    if (shm_rx_handle < 0) {
-        LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(shm_rx_handle));
-        return shm_rx_handle;
-    }
-    void *shm_rx = MemMap(shm_rx_handle, 0, PROT_RW);
-    if (PtrIsErr(shm_rx)) {
-        LOG_ERROR(LOG_TAG, "MemMap on shm_rx failed: %s", StrToError((Err)(VirtAddr)shm_rx));
-        return (Err)(VirtAddr)shm_rx;
-    }
-
-    nic_rx = (NicRing *)shm_rx;
-    nic_tx = (NicRing *)shm_tx;
-    nic_block = (NicStatsBlock *)((uint8_t *)shm_rx + NIC_STATS_OFFSET);
+    nic_block = (NicStatsBlock *)((uint8_t *)nic_rx + NIC_STATS_OFFSET);
     nic_stats = nic_block->stat;
     memset(nic_block, 0, sizeof(NicStatsBlock));
     nic_block->link_down = !g_genet.link_up;
+
+    nic_cntl_block = (NicCntlBlock *)((uint8_t *)nic_rx + NIC_CNTL_OFFSET);
+    memset(nic_cntl_block, 0, sizeof(NicCntlBlock));
 
     nic_tx->head = 0;
     nic_tx->tail = 0;
@@ -88,23 +113,22 @@ static Err NetdGrant(Handle netd_port, const MsgWriter *w, Handle h, HandlePerms
     return ZUZU_OK;
 }
 
-static Err NetdHandshake(void)
+/** @brief Run the three handshake stages on @p netd_port and store the name and doorbell. */
+static Err NetdHandshakeOn(Handle netd_port)
 {
-    Handle netd_port = WaitForService("/svc/netd");
-    if (netd_port < 0) {
-        LOG_ERROR(LOG_TAG, "Couldn't find netd");
-        return ERR_SYSDOWN;
-    }
-
     uint32_t mac_lo = 0, mac_hi = 0;
     memcpy(&mac_lo, &g_genet.mac[0], 4);
     memcpy(&mac_hi, &g_genet.mac[4], 2);
+    uint64_t driver_key = 0;
+    for (size_t i = 0; i < sizeof(g_genet.mac); i++)
+        driver_key = (driver_key << 8) | g_genet.mac[i];
 
     MsgWriter w;
     MsgWriterInit(&w);
     MsgPutByte(&w, NETD_DRVHANDSHAKE_INIT);
     MsgPutU32(&w, mac_lo);
     MsgPutU32(&w, mac_hi);
+    MsgPutU64(&w, driver_key);
     Err rc = NetdGrant(netd_port, &w, g_genet.event, PERM_WAIT | PERM_SEND, NULL);
     if (rc != ZUZU_OK)
         return rc;
@@ -122,18 +146,43 @@ static Err NetdHandshake(void)
     if (rc != ZUZU_OK)
         return rc;
 
+    Handle bell = (Handle)reply.r3;
     uint32_t len = (uint32_t)reply.r1 - sizeof(Err);
-    if (len == 0 || len > sizeof(ifname))
+    if (bell < 0 || len == 0 || len > sizeof(ifname)) {
+        if (bell >= 0)
+            HandleClose(bell);
         return ERR_MALFORMED;
+    }
     memcpy(ifname, (const char *)GetMessageBox() + sizeof(Err), len);
-    if (ifname[len - 1] != '\0')
+    if (ifname[len - 1] != '\0') {
+        HandleClose(bell);
         return ERR_MALFORMED;
-    netd_bell = (Handle)reply.r3;
-    if (netd_bell < 0)
-        return ERR_MALFORMED;
+    }
+    netd_bell = bell;
 
     LOG_INFO(LOG_TAG, "registered with netd as %s", ifname);
     return ZUZU_OK;
+}
+
+/** @brief Find netd, run the handshake, and close the service port afterwards. */
+static Err NetdHandshake(void)
+{
+    Handle netd_port = WaitForService("/svc/netd");
+    if (netd_port < 0) {
+        LOG_ERROR(LOG_TAG, "Couldn't find netd");
+        return ERR_SYSDOWN;
+    }
+    Err rc = NetdHandshakeOn(netd_port);
+    HandleClose(netd_port);
+    return rc;
+}
+
+void NetdDisconnect(void)
+{
+    FreePacketRings();
+    if (netd_bell >= 0)
+        HandleClose(netd_bell);
+    netd_bell = -1;
 }
 
 Err ConnectToNetd(void)
@@ -141,6 +190,8 @@ Err ConnectToNetd(void)
     Err rc = InitPacketRings();
     if (rc == ZUZU_OK)
         rc = NetdHandshake();
+    if (rc != ZUZU_OK)
+        FreePacketRings();
     return rc;
 }
 
@@ -158,12 +209,13 @@ static void PushFrame(const uint8_t *frame, uint32_t len)
     rx_pushed = true;
 }
 
-void NetdRx(void)
+bool NetdRx(void)
 {
     rx_pushed = false;
-    GenetRxPoll(PushFrame);
+    bool more = GenetRxPoll(PushFrame);
     if (rx_pushed)
         Signal(netd_bell, NIC_NETD_DOORBELL, false);
+    return more;
 }
 
 Err NetdTx(void)
@@ -183,12 +235,58 @@ Err NetdTx(void)
 void NetdSyncStats(void)
 {
     nic_stats[NIC_STAT_IRQ] = g_genet.irqs;
-    nic_stats[NIC_STAT_TX_PACKETS] = g_genet.tx_packets;
+    nic_stats[NIC_STAT_TX_PACKETS] = g_genet.tx_completed;
+    nic_stats[NIC_STAT_TX_TIMEOUTS] = g_genet.tx_timeouts;
+    nic_stats[NIC_STAT_RX_OVERFLOWS] = g_genet.rx_overflows;
+    nic_stats[NIC_STAT_TX_UNDERRUNS] = g_genet.tx_underruns;
+    nic_stats[NIC_STAT_IRQ_OTHER] = g_genet.irq_other;
     nic_stats[NIC_STAT_RX_ERRORS] = g_genet.rx_errors;
+    nic_stats[NIC_STAT_MAC_RX_BYTES] = MibRead(MIB_RX_BYTES);
+    nic_stats[NIC_STAT_MAC_TX_BYTES] = MibRead(MIB_TX_BYTES);
+    nic_stats[NIC_STAT_MAC_RX_FCS] = MibRead(MIB_RX_FCS);
+    nic_stats[NIC_STAT_MAC_RX_ALIGN] = MibRead(MIB_RX_ALIGN);
+    nic_stats[NIC_STAT_MAC_RX_RUNT] = MibRead(MIB_RX_RUNT);
+    nic_stats[NIC_STAT_MAC_RX_OVERSIZE] = MibRead(MIB_RX_OVERSIZE);
 }
 
 void NetdReportLink(void)
 {
     nic_block->link_down = !g_genet.link_up;
     Signal(netd_bell, NIC_NETD_DOORBELL, false);
+}
+
+/** @brief Write one MAC into MDF slot @p slot and return its enable bit. */
+static uint32_t MdfSet(uint32_t slot, const uint8_t *mac)
+{
+    g_genet.umac->mdf_addr[slot * 2] = ((uint32_t)mac[0] << 8) | mac[1];
+    g_genet.umac->mdf_addr[slot * 2 + 1] =
+        ((uint32_t)mac[2] << 24) | ((uint32_t)mac[3] << 16) | ((uint32_t)mac[4] << 8) | mac[5];
+    return 1u << (MDF_SLOTS - 1 - slot);
+}
+
+void NetdApplyCntl(void)
+{
+    uint32_t flags = nic_cntl_block->flags;
+    uint32_t count = nic_cntl_block->mcast_count;
+    if (count > NIC_MCAST_MAX)
+        count = NIC_MCAST_MAX;
+
+    uint32_t cmd = g_genet.umac->cmd;
+    if (flags & (NIC_CNTL_PROMISC | NIC_CNTL_ALLMULTI)) {
+        g_genet.umac->mdf_ctrl = 0;
+        g_genet.umac->cmd = cmd | CMD_PROMISC;
+        return;
+    }
+
+    static const MacAddr bcast = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    uint32_t enable = MdfSet(0, bcast);
+    enable |= MdfSet(1, g_genet.mac);
+    for (uint32_t i = 0; i < count; i++) {
+        MacAddr m;
+        for (uint32_t b = 0; b < MAC_ADDR_LEN; b++)
+            m[b] = nic_cntl_block->mcast[i][b];
+        enable |= MdfSet(i + 2, m);
+    }
+    g_genet.umac->mdf_ctrl = enable;
+    g_genet.umac->cmd = cmd & ~CMD_PROMISC;
 }

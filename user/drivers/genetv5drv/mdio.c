@@ -2,11 +2,13 @@
 
 #define PHY_ADDR 1
 #define MDIO_TIMEOUT 100000
+#define MDIO_OP_WRITE 1
+#define MDIO_OP_READ 2
 
 Err MdioRead(uint32_t reg, uint16_t *out)
 {
     GenetMdioCmd c = {.raw = 0};
-    c.op = 2;
+    c.op = MDIO_OP_READ;
     c.phy = PHY_ADDR;
     c.reg = reg;
     c.busy = 1;
@@ -24,10 +26,19 @@ Err MdioRead(uint32_t reg, uint16_t *out)
     return ZUZU_OK;
 }
 
+Err MdioReadLatched(uint32_t reg, uint16_t *out)
+{
+    Err rc = MdioRead(reg, out);
+    if (rc != ZUZU_OK)
+        return rc;
+    rc = MdioRead(reg, out);
+    return rc;
+}
+
 Err MdioWrite(uint32_t reg, uint16_t value)
 {
     GenetMdioCmd c = {.raw = 0};
-    c.op = 1;
+    c.op = MDIO_OP_WRITE;
     c.phy = PHY_ADDR;
     c.reg = reg;
     c.data = value;

@@ -20,7 +20,12 @@
 #include "app/dhcp.h"
 #include "ctl.h"
 
-
+NicRing *tx_ring, *rx_ring;
+NicStatsBlock *stats;
+NicCntlBlock *cntl;
+Handle g_svc_port = -1;
+Handle g_event = -1;
+Handle g_nic_doorbell_ev = -1;
 
 #define LEGACY_POLL_CAP 50u
 
@@ -91,6 +96,17 @@ static void RejectCall(Err err, Handle granted)
     Reply(sizeof(err), -1);
 }
 
+/** @brief Publish @p req in the control block and tell the driver to apply it. */
+static Err SetRxFilter(const NetdRxFilter *req)
+{
+    for (uint32_t i = 0; i < req->mcast_count; i++)
+        for (uint32_t b = 0; b < MAC_ADDR_LEN; b++)
+            cntl->mcast[i][b] = req->mcast[i][b];
+    cntl->mcast_count = req->mcast_count;
+    cntl->flags = req->flags & (NIC_CNTL_PROMISC | NIC_CNTL_ALLMULTI);
+    return Signal(g_nic_doorbell_ev, NIC_DOORBELL_CNTL, false);
+}
+
 static void CtlReject(Err err, Handle granted)
 {
     if (granted >= 0)
@@ -112,8 +128,40 @@ static void HandleNetdCall(const PortWaitResult *call)
         
         memcpy(out.mac, netif.mac, sizeof(out.mac));
         strncpy(out.name, "eth0", sizeof(out.name) - 1);
+        if (stats) {
+            out.link_up = !stats->link_down;
+            for (int i = 0; i < NIC_STAT_COUNT; i++)
+                out.stat[i] = stats->stat[i];
+        }
+        if (cntl) {
+            out.rx_flags = cntl->flags;
+            out.mcast_count = cntl->mcast_count > NIC_MCAST_MAX ? NIC_MCAST_MAX : cntl->mcast_count;
+            for (uint32_t i = 0; i < out.mcast_count; i++)
+                for (uint32_t b = 0; b < MAC_ADDR_LEN; b++)
+                    out.mcast[i][b] = cntl->mcast[i][b];
+        }
         MsgWrite(&out, sizeof(out));
         CtlReply(sizeof(out), -1);
+    } break;
+    case NETD_SET_RXFILTER: {
+        if (call->granted >= 0)
+            HandleClose(call->granted);
+
+        Err rc = ZUZU_OK;
+        NetdRxFilter req;
+        if (!cntl || g_nic_doorbell_ev < 0) {
+            rc = ERR_SYSDOWN;
+        } else if (call->xlen < sizeof(req)) {
+            rc = ERR_BADARG;
+        } else {
+            memcpy(&req, GetMessageBox(), sizeof(req));
+            if (req.mcast_count > NIC_MCAST_MAX)
+                rc = ERR_BADARG;
+            else
+                rc = SetRxFilter(&req);
+        }
+        MsgWrite(&rc, sizeof(rc));
+        CtlReply(sizeof(rc), -1);
     } break;
     default: {
         CtlReject(ERR_NOSYS, call->granted);
@@ -181,6 +229,7 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
         return ERR_BADHANDLE;
     }
     stats = (NicStatsBlock *)((uint8_t *)rx_ring + NIC_STATS_OFFSET);
+    cntl = (NicCntlBlock *)((uint8_t *)rx_ring + NIC_CNTL_OFFSET);
 
     Handle bell;
     rc = HandleDup(g_event, PERM_SEND | PERM_TXFR, MARKER_NONE, &bell);

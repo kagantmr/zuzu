@@ -40,6 +40,10 @@ _Static_assert(offsetof(GenetExt, rgmii_oob_ctrl) == 0x0c, "layout");
 #define EXT_PWR_DOWN_PHY_RD (1u << 19)
 #define EXT_PWR_DOWN_PHY_EN (1u << 20)
 
+#define CMD_PROMISC (1u << 4)
+/** @brief Number of destination MAC filter slots in the UniMAC. */
+#define MDF_SLOTS 17
+
 #define RGMII_LINK (1u << 4)
 #define OOB_DISABLE (1u << 5)
 #define RGMII_MODE_EN (1u << 6)
@@ -67,6 +71,9 @@ typedef struct {
     volatile uint32_t mib_ctrl;        /* 0x580 */
     uint32_t _rsvd2[(0x614 - 0x584) / 4];
     volatile uint32_t mdio_cmd;        /* 0x614 */
+    uint32_t _rsvd3[(0x650 - 0x618) / 4];
+    volatile uint32_t mdf_ctrl;     /* 0x650 */
+    volatile uint32_t mdf_addr[34]; /* 0x654 */
 } GenetUmac;
 _Static_assert(offsetof(GenetUmac, tx_flush) == 0x334, "layout");
 _Static_assert(offsetof(GenetUmac, mib_ctrl) == 0x580, "layout");
@@ -77,12 +84,26 @@ _Static_assert(offsetof(GenetUmac, mdio_cmd) == 0x614, "layout");
 #define CMD_SPEED_SHIFT 2
 #define CMD_SW_RESET (1u << 13)
 #define CMD_LCL_LOOP_EN (1u << 15)
+#define CMD_RX_PAUSE_IGNORE (1u << 8)
+#define CMD_TX_PAUSE_IGNORE (1u << 28)
 
 #define UMAC_SPEED_10 0
 #define UMAC_SPEED_100 1
 #define UMAC_SPEED_1000 2
 
 #define MIB_RESET_ALL 0x7u
+/** @brief UMAC offset of the MIB counter for bytes received. */
+#define MIB_RX_BYTES 0x42c
+/** @brief UMAC offset of the MIB counter for received frames with a bad FCS. */
+#define MIB_RX_FCS 0x438
+/** @brief UMAC offset of the MIB counter for received frames with an alignment error. */
+#define MIB_RX_ALIGN 0x448
+/** @brief UMAC offset of the MIB counter for received oversize frames. */
+#define MIB_RX_OVERSIZE 0x458
+/** @brief UMAC offset of the MIB counter for bytes transmitted. */
+#define MIB_TX_BYTES 0x4e8
+/** @brief UMAC offset of the MIB counter for received runt frames. */
+#define MIB_RX_RUNT 0x500
 #define ENET_MAX_FRAME_LEN 1536
 
 typedef struct {
@@ -186,6 +207,10 @@ typedef struct {
 _Static_assert(offsetof(GenetIntrl2, clear) == 0x08, "layout");
 _Static_assert(offsetof(GenetIntrl2, mask_clear) == 0x14, "layout");
 
+/** @brief INTRL2_0: the TX buffer ran dry in the middle of a frame. */
+#define TBUF_UNDERRUN (1u << 8)
+/** @brief INTRL2_0: the RX buffer overflowed and dropped frames. */
+#define RBUF_OVERFLOW (1u << 9)
 #define RXDMA_MBDONE (1u << 13)
 
 #define TXDMA_MBDONE (1u << 16)

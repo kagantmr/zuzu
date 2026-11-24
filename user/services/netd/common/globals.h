@@ -1,6 +1,7 @@
 #ifndef NETD_GLOBALS_H
 #define NETD_GLOBALS_H
 
+#include <net/nettypes.h>
 #include <net/packetring.h>
 #include <net/protocols/nic.h>
 #include <stdbool.h>
@@ -14,17 +15,8 @@
 
 #define LOG_TAG "netd"
 
-/* expand a network-order Ipv4Addr to four %u args (a.b.c.d) */
-#define IP4(x)                                                                                     \
-    (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), (unsigned)(((x) >> 16) & 0xff),         \
-        (unsigned)(((x) >> 24) & 0xff)
-
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-
-typedef uint32_t Ipv4Addr;
-typedef uint16_t NetPort;
-typedef uint8_t MacAddr[6];
 
 static inline uint32_t NetNowMs(void) { return (uint32_t)UptimeMs(); }
 
@@ -55,6 +47,7 @@ static inline bool RateAllow(RateLimiter *rl, uint32_t rate, uint32_t burst)
 
 extern NicRing *tx_ring, *rx_ring;
 extern NicStatsBlock *stats;
+extern NicCntlBlock *cntl;
 extern Handle g_svc_port;
 extern Handle g_event;
 extern Handle g_nic_doorbell_ev; /* shared with the NIC driver: RX bit in, TX bit out */

@@ -8,11 +8,6 @@
 
 #define LOG_TAG "netd"
 
-/* expand a network-order Ipv4Addr to four %u args (a.b.c.d) */
-#define IP4(x)                                                                                     \
-    (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), (unsigned)(((x) >> 16) & 0xff),         \
-        (unsigned)(((x) >> 24) & 0xff)
-
 void IcmpRx(uint8_t *payload, size_t payload_len, Ipv4Addr src_ip)
 {
     if (payload_len < 8 || !payload) {

@@ -51,7 +51,7 @@ static void BuildPrompt(char *out, size_t cap)
 {
     const char *ps1 = VarGet("PS1");
     if (!ps1 || !ps1[0]) {
-        snprintf(out, cap, "%s", ANSI_BOLD ANSI_CYAN "zzsh " ANSI_GREEN "~>" ANSI_RESET);
+        snprintf(out, cap, "%s", ANSI_BOLD ANSI_CYAN "zzsh " ANSI_GREEN "~" ANSI_RESET " ");
         return;
     }
 

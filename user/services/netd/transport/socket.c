@@ -143,6 +143,41 @@ Err SocketBind(Socket *s, NetPort port)
     return ZUZU_OK;
 }
 
+static bool SocketTxPending(Socket *s) { return ShmRingLoadHead(&s->shm->tx) != s->tx_tail; }
+
+static void SocketDetach(Socket *s)
+{
+    ListRemove(&s->id_node);
+    ListRemove(&s->sess_node);
+    SessionSocketCount(s->session, -1);
+}
+
+static void SocketFree(Socket *s)
+{
+    if (s->port) {
+        ListRemove(&s->port_node);
+        UdpUnbind(s->port);
+        PortRelease(s->port);
+    }
+    if (!s->closing)
+        SocketDetach(s);
+    s->shm->state = SOCK_STATE_CLOSED;
+    MemUnmap(s->shm);
+    HandleClose(s->mem);
+
+    free(s);
+}
+
+static void SocketFinishClose(Socket *s)
+{
+    if (s->pcb >= 0) {
+        TcpSetCtx(s->pcb, NULL);
+        TcpClose(s->pcb);
+        s->pcb = -1;
+    }
+    SocketFree(s);
+}
+
 void SocketClose(Socket *s)
 {
     if (s->kind == SOCK_KIND_TCP) {
@@ -154,26 +189,14 @@ void SocketClose(Socket *s)
             s->accept_n = 0;
         } else {
             SocketTcpTx(s);
-        }
-        if (s->pcb >= 0) {
-            TcpSetCtx(s->pcb, NULL);
-            TcpClose(s->pcb);
-            s->pcb = -1;
+            if (s->pcb >= 0 && SocketTxPending(s)) {
+                SocketDetach(s);
+                s->closing = true;
+                return;
+            }
         }
     }
-    if (s->port) {
-        ListRemove(&s->port_node);
-        UdpUnbind(s->port);
-        PortRelease(s->port);
-    }
-    ListRemove(&s->id_node);
-    ListRemove(&s->sess_node);
-    SessionSocketCount(s->session, -1);
-    s->shm->state = SOCK_STATE_CLOSED;
-    MemUnmap(s->shm);
-    HandleClose(s->mem);
-
-    free(s);
+    SocketFinishClose(s);
 }
 
 void SocketCloseAll(int session)
@@ -262,7 +285,8 @@ static void SocketTcpTx(Socket *s)
 
     if (sent) {
         ShmRingPublishTail(&s->shm->tx, s->tx_tail);
-        SessionKick(s->session);
+        if (!s->closing)
+            SessionKick(s->session);
     }
 }
 
@@ -288,21 +312,24 @@ static void SockOnEstablished(int slot)
 static void SockOnData(int slot)
 {
     Socket *s = SockOf(slot);
-    if (s && !s->listener)
+    if (s && !s->listener && !s->closing)
         SocketTcpRx(s);
 }
 
 static void SockOnWritable(int slot)
 {
     Socket *s = SockOf(slot);
-    if (s && !s->listener)
-        SocketTcpTx(s);
+    if (!s || s->listener)
+        return;
+    SocketTcpTx(s);
+    if (s->closing && !SocketTxPending(s))
+        SocketFinishClose(s);
 }
 
 static void SockOnClose(int slot)
 {
     Socket *s = SockOf(slot);
-    if (!s || s->listener)
+    if (!s || s->listener || s->closing)
         return;
     s->peer_closed = true;
     SocketTcpRx(s);
@@ -326,6 +353,10 @@ static void SockOnClosed(int slot, int err)
         return;
     }
     s->pcb = -1;
+    if (s->closing) {
+        SocketFree(s);
+        return;
+    }
     s->shm->error = err;
     s->shm->state = SOCK_STATE_CLOSED;
     SessionKick(s->session);
