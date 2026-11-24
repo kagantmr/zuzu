@@ -1,6 +1,7 @@
 #include "session.h"
 #include "../common/globals.h"
 #include "socket.h"
+#include "../ctl.h"
 #include <net/protocols/nic.h>
 #include <string.h>
 #include <util/log.h>
@@ -21,7 +22,7 @@ static Handle g_death = -1;
 static void ReplyStatus(Err status)
 {
     MsgWrite(&status, sizeof(status));
-    Reply(sizeof(status), -1);
+    CtlReply(sizeof(status), -1);
 }
 
 static void DropGrant(const PortWaitResult *call)
@@ -113,7 +114,7 @@ static void HandleAttach(const PortWaitResult *call)
     SockAttachReply rep = {
         .status = ZUZU_OK, .session = SESSION_INDEX(g_gen[slot], slot), .bit = SESSION_BIT(slot)};
     MsgWrite(&rep, sizeof(rep));
-    Err sent = Reply(sizeof(rep), bell);
+    Err sent = CtlReply(sizeof(rep), bell);
     HandleClose(bell);
     if (sent != ZUZU_OK) {
         LOG_DEBUG(LOG_TAG, "session %d: reply grant failed rc=%d", slot, sent);
@@ -181,7 +182,7 @@ static void HandleSockOpen(const PortWaitResult *call)
     }
     SockOpenReply rep = {.status = ZUZU_OK, .sock = id};
     MsgWrite(&rep, sizeof(rep));
-    Reply(sizeof(rep), -1);
+    CtlReply(sizeof(rep), -1);
 }
 
 static void HandleSockBind(const PortWaitResult *call)
@@ -286,7 +287,7 @@ static void HandleSockAccept(const PortWaitResult *call)
     }
     SockOpenReply rep = {.status = ZUZU_OK, .sock = id};
     MsgWrite(&rep, sizeof(rep));
-    Reply(sizeof(rep), -1);
+    CtlReply(sizeof(rep), -1);
 }
 
 bool SessionHandle(const PortWaitResult *call)

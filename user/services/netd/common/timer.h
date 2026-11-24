@@ -7,6 +7,11 @@
 
 #define TIMER_NO_DEADLINE UINT32_MAX
 
+/** @brief Width of one wheel slot in milliseconds. */
+#define TIMER_TICK_MS 8u
+/** @brief Number of wheel slots; a power of two. One turn covers TIMER_TICK_MS * TIMER_WHEEL_SLOTS. */
+#define TIMER_WHEEL_SLOTS 256u
+
 typedef struct {
     ListNode node;
     uint32_t deadline_ms; /* absolute, vs NetNowMs() */

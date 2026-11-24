@@ -4,6 +4,7 @@
 #include "arp.h"
 #include <net/protocols/nic.h>
 #include <stdio.h>
+#include "../common/netif.h"
 #include <stdlib.h>
 #include <string.h>
 #include <zuzu/zuzu.h>

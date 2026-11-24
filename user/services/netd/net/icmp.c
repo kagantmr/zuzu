@@ -4,6 +4,7 @@
 #include <malloc.h>
 #include <stdio.h>
 #include <util/log.h>
+#include "../common/netif.h"
 
 #define LOG_TAG "netd"
 

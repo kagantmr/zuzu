@@ -18,14 +18,9 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-/* One network interface's L2/L3 config. */
-typedef struct {
-    Ipv4Addr ip;
-    Ipv4Addr netmask;
-    Ipv4Addr gateway;
-    Ipv4Addr dns;
-    MacAddr mac;
-} Netif;
+typedef uint32_t Ipv4Addr;
+typedef uint16_t NetPort;
+typedef uint8_t MacAddr[6];
 
 static inline uint32_t NetNowMs(void) { return (uint32_t)UptimeMs(); }
 
@@ -60,6 +55,5 @@ extern NicCntlBlock *cntl;
 extern Handle g_svc_port;
 extern Handle g_event;
 extern Handle g_nic_doorbell_ev; /* shared with the NIC driver: RX bit in, TX bit out */
-extern Netif netif;
 
 #endif

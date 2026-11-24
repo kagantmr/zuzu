@@ -1,5 +1,6 @@
 #include "netrand.h"
 #include <arch/cycles.h>
+#include "../common/netif.h"
 
 // xorshift32 for TCP
 static uint32_t rng_state;

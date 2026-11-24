@@ -1,5 +1,6 @@
 #include "tcp.h"
 #include "../app/dhcp.h"
+#include "../common/netif.h"
 #include "../common/netrand.h"
 #include "../net/ip.h"
 #include "port.h"
