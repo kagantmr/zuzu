@@ -1,6 +1,8 @@
 #define LV_CONF_INCLUDE_SIMPLE
 #include "vendor/lvgl/lvgl.h"
 
+#include <dev/hid.h>
+#include <dev/keymap.h>
 #include <dev/protocols/fb.h>
 #include <dev/protocols/input.h>
 #include <string.h>
@@ -19,6 +21,7 @@
 #define VT_EVENTS (FB_EVT_ACTIVATE | FB_EVT_DEACTIVATE)
 #define WAKE_EVENTS (VT_EVENTS | FB_EVT_INPUT)
 #define INPUT_BATCH 16
+#define KEY_QUEUE 32
 
 static Handle g_gfx = -1;
 static Handle g_event = -1;
@@ -30,6 +33,15 @@ static InputRing *g_ring;
 static lv_point_t g_ptr;
 static bool g_ptr_down;
 static lv_obj_t *g_count_label;
+static KeymapState g_keymap;
+static uint32_t g_key_of_usage[256];
+static struct {
+    uint32_t key;
+    bool pressed;
+} g_keys[KEY_QUEUE];
+static uint32_t g_key_head;
+static uint32_t g_key_tail;
+static uint32_t g_last_key;
 static uint32_t g_clicks;
 
 static Err FbCall(uint32_t cmd, uint32_t arg, Handle grant, void *reply, uint32_t reply_len,
@@ -110,9 +122,70 @@ static Err FbOpen(void)
     return ZUZU_OK;
 }
 
-static void PointerRead(lv_indev_t *indev, lv_indev_data_t *data)
+static uint32_t SpecialKey(uint8_t usage, bool shift)
 {
-    (void)indev;
+    switch (usage) {
+    case HID_KEY_ENTER:
+    case HID_KEY_KP_ENTER:
+        return LV_KEY_ENTER;
+    case HID_KEY_ESCAPE:
+        return LV_KEY_ESC;
+    case HID_KEY_BACKSPACE:
+        return LV_KEY_BACKSPACE;
+    case HID_KEY_DELETE:
+        return LV_KEY_DEL;
+    case HID_KEY_TAB:
+        return shift ? LV_KEY_PREV : LV_KEY_NEXT;
+    case HID_KEY_UP:
+        return LV_KEY_UP;
+    case HID_KEY_DOWN:
+        return LV_KEY_DOWN;
+    case HID_KEY_LEFT:
+        return LV_KEY_LEFT;
+    case HID_KEY_RIGHT:
+        return LV_KEY_RIGHT;
+    case HID_KEY_HOME:
+        return LV_KEY_HOME;
+    case HID_KEY_END:
+        return LV_KEY_END;
+    default:
+        return 0;
+    }
+}
+
+static void QueueKey(uint32_t key, bool pressed)
+{
+    if (g_key_head - g_key_tail == KEY_QUEUE)
+        return;
+    g_keys[g_key_head % KEY_QUEUE].key = key;
+    g_keys[g_key_head % KEY_QUEUE].pressed = pressed;
+    g_key_head++;
+}
+
+static void OnKey(uint8_t usage, bool pressed)
+{
+    bool shift = (g_keymap.mods & (KEYMOD_LSHIFT | KEYMOD_RSHIFT)) != 0;
+    uint8_t seq[KEYMAP_MAX_SEQ];
+    size_t n = KeymapFeed(&g_keymap, usage, pressed, seq, sizeof(seq));
+
+    if (!pressed) {
+        if (g_key_of_usage[usage]) {
+            QueueKey(g_key_of_usage[usage], false);
+            g_key_of_usage[usage] = 0;
+        }
+        return;
+    }
+    uint32_t key = SpecialKey(usage, shift);
+    if (!key && n == 1 && seq[0] >= 0x20 && seq[0] < 0x7F)
+        key = seq[0];
+    if (!key)
+        return;
+    g_key_of_usage[usage] = key;
+    QueueKey(key, true);
+}
+
+static void DrainInput(void)
+{
     InputEvent ev[INPUT_BATCH];
     uint32_t n;
     while ((n = InputRingRead(g_ring, ev, INPUT_BATCH)) > 0) {
@@ -123,10 +196,34 @@ static void PointerRead(lv_indev_t *indev, lv_indev_data_t *data)
                 g_ptr.y = ev[i].value;
             else if (ev[i].type == INPUT_EV_BTN && ev[i].code == INPUT_BTN_LEFT)
                 g_ptr_down = ev[i].value != 0;
+            else if (ev[i].type == INPUT_EV_KEY)
+                OnKey((uint8_t)ev[i].code, ev[i].value != 0);
         }
     }
+}
+
+static void PointerRead(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    (void)indev;
+    DrainInput();
     data->point = g_ptr;
     data->state = g_ptr_down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+}
+
+static void KeypadRead(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    (void)indev;
+    DrainInput();
+    if (g_key_tail == g_key_head) {
+        data->key = g_last_key;
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
+    uint32_t i = g_key_tail++ % KEY_QUEUE;
+    g_last_key = g_keys[i].key;
+    data->key = g_keys[i].key;
+    data->state = g_keys[i].pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+    data->continue_reading = g_key_tail != g_key_head;
 }
 
 static void FlushCb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
@@ -147,6 +244,9 @@ static void HandleVtEvents(uint32_t bits)
 {
     if (bits & FB_EVT_DEACTIVATE) {
         g_active = false;
+        KeymapInit(&g_keymap);
+        memset(g_key_of_usage, 0, sizeof(g_key_of_usage));
+        g_ptr_down = false;
         FbCall(FB_CMD_DEACTIVATED, 0, -1, NULL, 0, NULL);
     }
     if (bits & FB_EVT_ACTIVATE) {
@@ -177,8 +277,14 @@ static void BuildUi(void)
     lv_obj_set_size(spinner, 64, 64);
     lv_obj_align(spinner, LV_ALIGN_CENTER, 0, 40);
 
+    lv_obj_t *text = lv_textarea_create(scr);
+    lv_textarea_set_one_line(text, true);
+    lv_textarea_set_placeholder_text(text, "Type here");
+    lv_obj_set_width(text, 320);
+    lv_obj_align(text, LV_ALIGN_CENTER, 0, 130);
+
     lv_obj_t *button = lv_button_create(scr);
-    lv_obj_align(button, LV_ALIGN_CENTER, 0, 130);
+    lv_obj_align(button, LV_ALIGN_CENTER, 0, 200);
     lv_obj_add_event_cb(button, OnClick, LV_EVENT_CLICKED, NULL);
     g_count_label = lv_label_create(button);
     lv_label_set_text(g_count_label, "Clicked 0 times");
@@ -201,6 +307,17 @@ static void CreatePointer(void)
     lv_indev_set_cursor(indev, cursor);
 }
 
+static void CreateKeypad(void)
+{
+    KeymapInit(&g_keymap);
+    lv_group_t *group = lv_group_create();
+    lv_group_set_default(group);
+    lv_indev_t *indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_KEYPAD);
+    lv_indev_set_read_cb(indev, KeypadRead);
+    lv_indev_set_group(indev, group);
+}
+
 int main(void)
 {
     Err rc = FbOpen();
@@ -220,6 +337,7 @@ int main(void)
                                        LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_set_flush_cb(disp, FlushCb);
 
+    CreateKeypad();
     BuildUi();
     CreatePointer();
 

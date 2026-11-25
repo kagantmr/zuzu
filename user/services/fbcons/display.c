@@ -1,6 +1,7 @@
 #include "fbcons.h"
 #include "font16x16.h"
 #include <dev/protocols/fb.h>
+#include <dev/protocols/input.h>
 #include <string.h>
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
@@ -13,6 +14,7 @@ static uint8_t *g_fb;
 static uint32_t g_cols;
 static uint32_t g_rows;
 static bool g_active;
+static InputRing *g_ring;
 
 static Err FbCall(uint32_t cmd, uint32_t arg, Handle grant, void *reply, uint32_t reply_len,
                   Handle *reply_grant)
@@ -98,6 +100,8 @@ bool DisplaySetActive(bool active)
     return was;
 }
 
+InputRing *DisplayInputRing(void) { return g_ring; }
+
 Err DisplayAckDeactivate(void) { return FbCall(FB_CMD_DEACTIVATED, 0, -1, NULL, 0, NULL); }
 
 Err DisplayInit(Handle event, uint32_t shift)
@@ -155,5 +159,18 @@ Err DisplayInit(Handle event, uint32_t shift)
         return rc;
     rc = FbCall(FB_CMD_SET_EVENT, shift, dup, NULL, 0, NULL);
     HandleClose(dup);
-    return rc;
+    if (rc != ZUZU_OK)
+        return rc;
+
+    Handle ring = -1;
+    rc = FbCall(FB_CMD_INPUT_OPEN, 0, -1, NULL, 0, &ring);
+    if (rc != ZUZU_OK || ring < 0)
+        return rc != ZUZU_OK ? rc : ERR_MALFORMED;
+    g_ring = MemMap(ring, 0, PROT_RW);
+    if (PtrIsErr(g_ring)) {
+        Err err = (Err)(intptr_t)g_ring;
+        g_ring = NULL;
+        return err;
+    }
+    return ZUZU_OK;
 }

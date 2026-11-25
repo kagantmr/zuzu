@@ -1,11 +1,8 @@
 #include "kmi.h"
 #include "ps2dec.h"
 #include <dev/devm.h>
-#include <dev/hid.h>
 #include <dev/protocols/input.h>
 #include <stddef.h>
-#include <dev/keymap.h>
-#include <dev/tty.h>
 #include <util/log.h>
 #include <zuzu/shm_ring.h>
 #include <zuzu/service.h>
@@ -21,7 +18,6 @@ typedef struct {
     volatile Pl050Mmio *kmi;
     Handle kmi_dev_h;
     Ps2Decoder dec;
-    KeymapState keymap;
     KmiRole role;
     uint8_t irq_pos;
     uint8_t pkt[3];
@@ -34,7 +30,6 @@ typedef struct {
 #define MOUSE_Y_SIGN 0x20u
 #define MOUSE_OVERFLOW 0xC0u
 #define MOUSE_BUTTONS 0x07u
-#define HOTKEY_VTS 8u
 
 static Handle g_gfx = -1;
 static InputPush g_push = {.cmd = INPUT_CMD_PUSH};
@@ -46,10 +41,6 @@ static Handle g_kmi_irq_ev = -1;
 static KmiPort ports[2];
 static Handle g_devsvc_port = -1;
 
-#define BIT_TTY 2
-#define TTY_ALIAS "fbcons"
-static TtyConn g_tty;
-static bool g_tty_up;
 
 #define KMI_TX_TIMEOUT_MS 20
 
@@ -227,7 +218,6 @@ static Err PortProbe(KmiPort *p)
             return rc;
         }
         Ps2DecoderInit(&p->dec);
-        KeymapInit(&p->keymap);
     }
     return ZUZU_OK;
 }
@@ -292,16 +282,8 @@ static void MouseFeed(KmiPort *p, uint8_t byte)
         QueueInput(INPUT_EV_SYN, 0, 0);
 }
 
-static bool IsVtHotkey(const KmiPort *p, uint8_t usage)
-{
-    bool ctrl = (p->keymap.mods & (KEYMOD_LCTRL | KEYMOD_RCTRL)) != 0;
-    bool alt = (p->keymap.mods & (KEYMOD_LALT | KEYMOD_RALT)) != 0;
-    return ctrl && alt && usage >= HID_KEY_F1 && usage < HID_KEY_F1 + HOTKEY_VTS;
-}
-
 static void PortDrain(KmiPort *p)
 {
-    bool pushed = false;
     while (p->kmi->stat & KMISTAT_RXFULL) {
         uint8_t byte = (uint8_t)p->kmi->data;
         if (p->role == KMI_ROLE_MOUSE) {
@@ -316,38 +298,8 @@ static void PortDrain(KmiPort *p)
             continue;
         QueueInput(INPUT_EV_KEY, ev.usage, ev.pressed ? 1 : 0);
         QueueInput(INPUT_EV_SYN, 0, 0);
-
-        uint8_t seq[KEYMAP_MAX_SEQ];
-        size_t n = KeymapFeed(&p->keymap, ev.usage, ev.pressed, seq, sizeof(seq));
-        if (n == 0 || !g_tty_up || IsVtHotkey(p, ev.usage))
-            continue;
-        if (ShmRingPush(&g_tty.shm->up_hdr, g_tty.shm->up_data, seq, (uint32_t)n) != n)
-            LOG_WARN(LOG_TAG, "tty input ring full, key dropped");
-        pushed = true;
     }
-    if (pushed)
-        Signal(g_tty.doorbell, 1U << g_tty.bit, false);
     FlushInput();
-}
-
-static void TtyConnect(void)
-{
-    Handle tty_port;
-    for (;;) {
-        tty_port = LookupService("/svc/tty");
-        if (tty_port >= 0)
-            break;
-        Sleep(10);
-    }
-
-    Err rc = TtyClientConnectDir(tty_port, TTY_PROVIDE, TTY_ALIAS, TTY_DIR_IN, g_kmi_irq_ev,
-                                 BIT_TTY, &g_tty);
-    if (rc != ZUZU_OK) {
-        LOG_ERROR(LOG_TAG, "tty provide failed: %s", StrToError(rc));
-        return;
-    }
-    g_tty_up = true;
-    LOG_INFO(LOG_TAG, "feeding tty endpoint %s", TTY_ALIAS);
 }
 
 int main()
@@ -382,9 +334,6 @@ int main()
         LOG_ERROR(LOG_TAG, "no keyboard or mouse found");
         return ERR_NOENT;
     }
-
-    if (ports[0].role == KMI_ROLE_KBD || ports[1].role == KMI_ROLE_KBD)
-        TtyConnect();
 
     if (ports[0].role) ports[0].kmi->cr = KMICR_EN | KMICR_RXINTREN;
     if (ports[1].role) ports[1].kmi->cr = KMICR_EN | KMICR_RXINTREN;

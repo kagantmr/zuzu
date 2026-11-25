@@ -1,5 +1,6 @@
 #include "fbcons.h"
 #include <dev/protocols/fb.h>
+#include <dev/keymap.h>
 #include <dev/tty.h>
 #include <zuzu/service.h>
 #include <zuzu/shm_ring.h>
@@ -17,6 +18,9 @@
 static Handle g_event = -1;
 static TtyConn g_tty;
 static Handle g_tty_port = -1;
+static KeymapState g_keymap;
+
+#define KEY_BATCH 16
 
 static bool Drain(void)
 {
@@ -37,6 +41,31 @@ static bool Drain(void)
     return any;
 }
 
+static bool ForwardKeys(void)
+{
+    InputRing *ring = DisplayInputRing();
+    if (!ring)
+        return false;
+    bool any = false;
+    InputEvent ev[KEY_BATCH];
+    uint32_t n;
+    while ((n = InputRingRead(ring, ev, KEY_BATCH)) > 0) {
+        for (uint32_t i = 0; i < n; i++) {
+            if (ev[i].type != INPUT_EV_KEY)
+                continue;
+            uint8_t seq[KEYMAP_MAX_SEQ];
+            size_t len = KeymapFeed(&g_keymap, (uint8_t)ev[i].code, ev[i].value != 0, seq,
+                                    sizeof(seq));
+            if (len == 0)
+                continue;
+            if (ShmRingPush(&g_tty.shm->up_hdr, g_tty.shm->up_data, seq, (uint32_t)len) != len)
+                LOG_WARN(LOG_TAG, "tty input ring full, key dropped");
+            any = true;
+        }
+    }
+    return any;
+}
+
 static Err SetupTty(void)
 {
     while (g_tty_port < 0) {
@@ -44,7 +73,7 @@ static Err SetupTty(void)
         if (g_tty_port < 0)
             Sleep(10);
     }
-    return TtyClientConnectDir(g_tty_port, TTY_PROVIDE, ALIAS, TTY_DIR_OUT, g_event, BIT_KICK,
+    return TtyClientConnectDir(g_tty_port, TTY_PROVIDE, ALIAS, TTY_DIR_BOTH, g_event, BIT_KICK,
                                &g_tty);
 }
 
@@ -60,6 +89,7 @@ int main(void)
         return 1;
     }
 
+    KeymapInit(&g_keymap);
     TermInit();
     TermShowCursor(true);
 
@@ -84,13 +114,17 @@ int main(void)
         uint32_t fb = (w.bits & FB_BITS) >> FB_EVT_SHIFT;
         if (fb & FB_EVT_DEACTIVATE) {
             DisplaySetActive(false);
+            KeymapInit(&g_keymap);
             DisplayAckDeactivate();
         }
         if (fb & FB_EVT_ACTIVATE) {
             DisplaySetActive(true);
             TermRepaint(true);
         }
+        bool kick = (fb & FB_EVT_INPUT) && ForwardKeys();
         if (Drain())
+            kick = true;
+        if (kick)
             Signal(g_tty.doorbell, MASK(g_tty.bit), false);
     }
 }

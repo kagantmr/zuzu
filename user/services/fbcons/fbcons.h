@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <types.h>
+#include <dev/protocols/input.h>
 
 #define MAX_COLS 128
 #define MAX_ROWS 64
@@ -13,6 +14,7 @@
 Err DisplayInit(Handle event, uint32_t shift);
 bool DisplaySetActive(bool active);
 Err DisplayAckDeactivate(void);
+InputRing *DisplayInputRing(void);
 void DisplayClear(uint16_t color);
 uint32_t DisplayCols(void);
 uint32_t DisplayRows(void);
