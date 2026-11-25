@@ -2,6 +2,7 @@
 #include "vendor/lvgl/lvgl.h"
 
 #include <dev/protocols/fb.h>
+#include <dev/protocols/input.h>
 #include <string.h>
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
@@ -16,6 +17,8 @@
 #define DISPLAY_WAIT_TRIES 500
 #define DISPLAY_WAIT_MS 10
 #define VT_EVENTS (FB_EVT_ACTIVATE | FB_EVT_DEACTIVATE)
+#define WAKE_EVENTS (VT_EVENTS | FB_EVT_INPUT)
+#define INPUT_BATCH 16
 
 static Handle g_gfx = -1;
 static Handle g_event = -1;
@@ -23,6 +26,11 @@ static uint32_t g_token;
 static FbInfo g_info;
 static uint8_t *g_fb;
 static bool g_active;
+static InputRing *g_ring;
+static lv_point_t g_ptr;
+static bool g_ptr_down;
+static lv_obj_t *g_count_label;
+static uint32_t g_clicks;
 
 static Err FbCall(uint32_t cmd, uint32_t arg, Handle grant, void *reply, uint32_t reply_len,
                   Handle *reply_grant)
@@ -89,7 +97,36 @@ static Err FbOpen(void)
         return rc;
     rc = FbCall(FB_CMD_SET_EVENT, 0, dup, NULL, 0, NULL);
     HandleClose(dup);
-    return rc;
+    if (rc != ZUZU_OK)
+        return rc;
+
+    Handle ring = -1;
+    rc = FbCall(FB_CMD_INPUT_OPEN, 0, -1, NULL, 0, &ring);
+    if (rc != ZUZU_OK || ring < 0)
+        return rc != ZUZU_OK ? rc : ERR_MALFORMED;
+    g_ring = MemMap(ring, 0, PROT_RW);
+    if (PtrIsErr(g_ring))
+        return (Err)(intptr_t)g_ring;
+    return ZUZU_OK;
+}
+
+static void PointerRead(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    (void)indev;
+    InputEvent ev[INPUT_BATCH];
+    uint32_t n;
+    while ((n = InputRingRead(g_ring, ev, INPUT_BATCH)) > 0) {
+        for (uint32_t i = 0; i < n; i++) {
+            if (ev[i].type == INPUT_EV_ABS && ev[i].code == INPUT_ABS_X)
+                g_ptr.x = ev[i].value;
+            else if (ev[i].type == INPUT_EV_ABS && ev[i].code == INPUT_ABS_Y)
+                g_ptr.y = ev[i].value;
+            else if (ev[i].type == INPUT_EV_BTN && ev[i].code == INPUT_BTN_LEFT)
+                g_ptr_down = ev[i].value != 0;
+        }
+    }
+    data->point = g_ptr;
+    data->state = g_ptr_down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
 
 static void FlushCb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
@@ -120,6 +157,12 @@ static void HandleVtEvents(uint32_t bits)
 
 static uint32_t TickCb(void) { return (uint32_t)UptimeMs(); }
 
+static void OnClick(lv_event_t *e)
+{
+    (void)e;
+    lv_label_set_text_fmt(g_count_label, "Clicked %u times", (unsigned)++g_clicks);
+}
+
 static void BuildUi(void)
 {
     lv_obj_t *scr = lv_screen_active();
@@ -133,6 +176,29 @@ static void BuildUi(void)
     lv_obj_t *spinner = lv_spinner_create(scr);
     lv_obj_set_size(spinner, 64, 64);
     lv_obj_align(spinner, LV_ALIGN_CENTER, 0, 40);
+
+    lv_obj_t *button = lv_button_create(scr);
+    lv_obj_align(button, LV_ALIGN_CENTER, 0, 130);
+    lv_obj_add_event_cb(button, OnClick, LV_EVENT_CLICKED, NULL);
+    g_count_label = lv_label_create(button);
+    lv_label_set_text(g_count_label, "Clicked 0 times");
+}
+
+static void CreatePointer(void)
+{
+    lv_indev_t *indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev, PointerRead);
+
+    lv_obj_t *cursor = lv_obj_create(lv_layer_sys());
+    lv_obj_remove_style_all(cursor);
+    lv_obj_set_size(cursor, 10, 10);
+    lv_obj_set_style_radius(cursor, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(cursor, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(cursor, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_border_width(cursor, 1, 0);
+    lv_obj_set_style_border_color(cursor, lv_color_hex(0x000000), 0);
+    lv_indev_set_cursor(indev, cursor);
 }
 
 int main(void)
@@ -155,6 +221,7 @@ int main(void)
     lv_display_set_flush_cb(disp, FlushCb);
 
     BuildUi();
+    CreatePointer();
 
     for (;;) {
         Duration wait = TIMEOUT_INFINITE;
@@ -162,7 +229,7 @@ int main(void)
             uint32_t next = lv_timer_handler();
             wait = (next == LV_NO_TIMER_READY || next > IDLE_MAX_MS) ? IDLE_MAX_MS : next;
         }
-        EventWaitResult w = WaitOnEvent(g_event, wait, VT_EVENTS, false);
+        EventWaitResult w = WaitOnEvent(g_event, wait, WAKE_EVENTS, false);
         if (w.status == ZUZU_OK)
             HandleVtEvents(w.bits);
     }

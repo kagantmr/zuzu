@@ -62,6 +62,13 @@ extern "C" {
 #define FB_CMD_SWITCH 7
 /** @brief Answer FB_EVT_DEACTIVATE: the caller has stopped drawing. Request {cmd, token}. */
 #define FB_CMD_DEACTIVATED 8
+/**
+ * @brief Ask for input. Request {cmd, token}; replies {Err status} and grants a PERM_MAP |
+ * PERM_WRITE | PERM_TXFR handle to one page holding an InputRing (dev/protocols/input.h).
+ *
+ * gfxsvc writes this VT's input events into the ring while it is active and signals FB_EVT_INPUT.
+ */
+#define FB_CMD_INPUT_OPEN 9
 
 /** @brief Event bit: a frame was scanned out (while FB_CMD_SET_VSYNC is on). */
 #define FB_EVT_VSYNC (1u << 0)
@@ -71,8 +78,11 @@ extern "C" {
 #define FB_EVT_DEACTIVATE (1u << 2)
 /** @brief Event bit: this VT is on screen again; redraw everything. */
 #define FB_EVT_ACTIVATE (1u << 3)
+/** @brief Event bit: new events are waiting in the input ring. */
+#define FB_EVT_INPUT (1u << 4)
 /** @brief Every FB_EVT_* bit. */
-#define FB_EVT_ALL (FB_EVT_VSYNC | FB_EVT_FLIPPED | FB_EVT_DEACTIVATE | FB_EVT_ACTIVATE)
+#define FB_EVT_ALL                                                                             \
+    (FB_EVT_VSYNC | FB_EVT_FLIPPED | FB_EVT_DEACTIVATE | FB_EVT_ACTIVATE | FB_EVT_INPUT)
 
 /** @brief Most clients gfxsvc serves at once; VTs are numbered 1 to this. */
 #define FB_MAX_VTS 8u

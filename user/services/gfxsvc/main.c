@@ -1,5 +1,8 @@
 #include <dev/protocols/fb.h>
+#include <dev/hid.h>
 #include <dev/protocols/fbdrv.h>
+#include <dev/protocols/input.h>
+#include <stddef.h>
 #include <string.h>
 #include <types.h>
 #include <zuzu/msg.h>
@@ -17,6 +20,10 @@
 #define FB_MAX_IMAGES 4U
 #define NO_VT (-1)
 #define NO_IMAGE UINT32_MAX
+#define MOD_CTRL_L (1U << 0)
+#define MOD_CTRL_R (1U << 1)
+#define MOD_ALT_L (1U << 2)
+#define MOD_ALT_R (1U << 3)
 
 typedef struct {
     bool ready;
@@ -41,7 +48,18 @@ typedef struct {
     uint32_t shift;
     uint32_t token;
     uint32_t image;
+    Handle ring_mem;
+    InputRing *ring;
 } Client;
+
+typedef struct {
+    bool placed;
+    bool moved;
+    int32_t x;
+    int32_t y;
+    uint32_t mods;
+    bool delivered;
+} Pointer;
 
 static Handle g_port = -1;
 static Handle g_event = -1;
@@ -51,6 +69,7 @@ static int g_active = NO_VT;
 static int g_switch_to = NO_VT;
 static uint64_t g_switch_deadline;
 static uint32_t g_next_token = 1;
+static Pointer g_input;
 
 static void ReplyStatus(Err status)
 {
@@ -113,11 +132,15 @@ static void ShowImage(uint32_t index)
         DoFlip(index, true);
 }
 
+static void SendPointer(void);
+
 static void Activate(int vt)
 {
     g_active = vt;
     ShowImage(g_clients[vt].image);
-    ClientSignal(vt, FB_EVT_ACTIVATE);
+    SendPointer();
+    ClientSignal(vt, FB_EVT_ACTIVATE | (g_input.delivered ? FB_EVT_INPUT : 0U));
+    g_input.delivered = false;
     LOG_INFO(LOG_TAG, "vt%d active", vt + 1);
 }
 
@@ -147,12 +170,19 @@ static void FinishSwitch(void)
         ActivateNext(old >= 0 ? old : 0);
 }
 
-static void DropClient(int vt)
+static void DropClientHandles(Client *c)
 {
-    Client *c = &g_clients[vt];
     CloseIf(&c->live);
     CloseIf(&c->event);
-    *c = (Client){.live = -1, .event = -1};
+    if (c->ring)
+        MemUnmap(c->ring);
+    CloseIf(&c->ring_mem);
+    *c = (Client){.live = -1, .event = -1, .ring_mem = -1};
+}
+
+static void DropClient(int vt)
+{
+    DropClientHandles(&g_clients[vt]);
 
     if (vt == g_switch_to) {
         g_switch_to = NO_VT;
@@ -191,10 +221,8 @@ static int FindClient(uint32_t token)
 static void DropDisplay(void)
 {
     for (int vt = 0; vt < (int)FB_MAX_VTS; vt++) {
-        if (ClientUsed(vt)) {
-            CloseIf(&g_clients[vt].live);
-            CloseIf(&g_clients[vt].event);
-        }
+        if (ClientUsed(vt))
+            DropClientHandles(&g_clients[vt]);
     }
     g_active = g_switch_to = NO_VT;
     if (g_disp.ctl)
@@ -342,7 +370,7 @@ static void ServeGetBuf(Handle live)
         return;
     }
     Client *c = &g_clients[vt];
-    *c = (Client){.live = live, .event = -1, .token = g_next_token++, .image = 0};
+    *c = (Client){.live = live, .event = -1, .token = g_next_token++, .image = 0, .ring_mem = -1};
     if (g_next_token == 0)
         g_next_token = 1;
     if (g_active == NO_VT && g_switch_to == NO_VT)
@@ -357,32 +385,180 @@ static void ServeGetBuf(Handle live)
     HandleClose((Handle)dup.r1);
 }
 
-static void ServeSwitch(uint32_t target)
+static Err StartSwitch(uint32_t target)
 {
-    if (!g_disp.ready) {
-        ReplyStatus(ERR_NOENT);
-        return;
-    }
+    if (!g_disp.ready)
+        return ERR_NOENT;
     ReapClients();
     int vt = (int)target - 1;
-    if (target == 0 || target > FB_MAX_VTS || !ClientUsed(vt)) {
-        ReplyStatus(ERR_NOENT);
-        return;
+    if (target == 0 || target > FB_MAX_VTS || !ClientUsed(vt))
+        return ERR_NOENT;
+    if (g_switch_to != NO_VT)
+        return ERR_BUSY;
+    if (vt == g_active)
+        return ZUZU_OK;
+    if (g_active == NO_VT) {
+        Activate(vt);
+    } else {
+        g_switch_to = vt;
+        g_switch_deadline = UptimeMs() + FB_SWITCH_TIMEOUT_MS;
+        ClientSignal(g_active, FB_EVT_DEACTIVATE);
     }
-    if (g_switch_to != NO_VT) {
-        ReplyStatus(ERR_BUSY);
+    return ZUZU_OK;
+}
+
+static void Deliver(uint16_t type, uint16_t code, int32_t value, uint32_t time_ms)
+{
+    if (g_switch_to != NO_VT || !ClientUsed(g_active) || !g_clients[g_active].ring)
         return;
+    InputEvent ev = {.type = type, .code = code, .value = value, .time_ms = time_ms};
+    if (InputRingWrite(g_clients[g_active].ring, &ev))
+        g_input.delivered = true;
+}
+
+static void PlacePointer(void)
+{
+    if (g_input.placed || !g_disp.ready)
+        return;
+    g_input.x = (int32_t)(g_disp.ctl->width / 2U);
+    g_input.y = (int32_t)(g_disp.ctl->height / 2U);
+    g_input.placed = true;
+}
+
+static void SendPointer(void)
+{
+    PlacePointer();
+    uint32_t now = (uint32_t)UptimeMs();
+    Deliver(INPUT_EV_ABS, INPUT_ABS_X, g_input.x, now);
+    Deliver(INPUT_EV_ABS, INPUT_ABS_Y, g_input.y, now);
+    Deliver(INPUT_EV_SYN, 0, 0, now);
+}
+
+static int32_t ClampAxis(int32_t v, uint32_t size)
+{
+    if (v < 0)
+        return 0;
+    if (v >= (int32_t)size)
+        return (int32_t)size - 1;
+    return v;
+}
+
+static uint32_t ModBit(uint16_t usage)
+{
+    switch (usage) {
+    case HID_KEY_LCTRL:
+        return MOD_CTRL_L;
+    case HID_KEY_RCTRL:
+        return MOD_CTRL_R;
+    case HID_KEY_LALT:
+        return MOD_ALT_L;
+    case HID_KEY_RALT:
+        return MOD_ALT_R;
+    default:
+        return 0;
     }
-    if (vt != g_active) {
-        if (g_active == NO_VT) {
-            Activate(vt);
-        } else {
-            g_switch_to = vt;
-            g_switch_deadline = UptimeMs() + FB_SWITCH_TIMEOUT_MS;
-            ClientSignal(g_active, FB_EVT_DEACTIVATE);
+}
+
+static bool IsHotkey(const InputEvent *ev)
+{
+    bool ctrl = (g_input.mods & (MOD_CTRL_L | MOD_CTRL_R)) != 0;
+    bool alt = (g_input.mods & (MOD_ALT_L | MOD_ALT_R)) != 0;
+    return ctrl && alt && ev->code >= HID_KEY_F1 && ev->code < HID_KEY_F1 + FB_MAX_VTS;
+}
+
+static void RouteEvent(const InputEvent *ev)
+{
+    switch (ev->type) {
+    case INPUT_EV_KEY: {
+        uint32_t bit = ModBit(ev->code);
+        if (bit)
+            g_input.mods = ev->value ? (g_input.mods | bit) : (g_input.mods & ~bit);
+        if (IsHotkey(ev)) {
+            if (ev->value)
+                StartSwitch((uint32_t)(ev->code - HID_KEY_F1) + 1U);
+            return;
         }
+        Deliver(ev->type, ev->code, ev->value, ev->time_ms);
+        break;
+    }
+    case INPUT_EV_REL:
+        PlacePointer();
+        if (ev->code == INPUT_REL_X)
+            g_input.x = ClampAxis(g_input.x + ev->value, g_disp.ctl->width);
+        else if (ev->code == INPUT_REL_Y)
+            g_input.y = ClampAxis(g_input.y + ev->value, g_disp.ctl->height);
+        g_input.moved = true;
+        break;
+    case INPUT_EV_BTN:
+        Deliver(ev->type, ev->code, ev->value, ev->time_ms);
+        break;
+    case INPUT_EV_SYN:
+        if (g_input.moved) {
+            Deliver(INPUT_EV_ABS, INPUT_ABS_X, g_input.x, ev->time_ms);
+            Deliver(INPUT_EV_ABS, INPUT_ABS_Y, g_input.y, ev->time_ms);
+            g_input.moved = false;
+        }
+        Deliver(INPUT_EV_SYN, 0, 0, ev->time_ms);
+        break;
+    default:
+        break;
+    }
+}
+
+static void ServeInputPush(uint32_t xlen)
+{
+    InputPush push;
+    uint32_t len = xlen < sizeof(push) ? xlen : (uint32_t)sizeof(push);
+    memcpy(&push, GetMessageBox(), len);
+    uint32_t room = len < offsetof(InputPush, ev) ? 0U
+                                                  : (len - (uint32_t)offsetof(InputPush, ev)) /
+                                                        (uint32_t)sizeof(InputEvent);
+    if (!g_disp.ready || push.count > room) {
+        ReplyStatus(g_disp.ready ? ERR_BADARG : ERR_NOENT);
+        return;
     }
     ReplyStatus(ZUZU_OK);
+    for (uint32_t i = 0; i < push.count; i++)
+        RouteEvent(&push.ev[i]);
+    if (g_input.delivered) {
+        g_input.delivered = false;
+        ClientSignal(g_active, FB_EVT_INPUT);
+    }
+}
+
+static void ServeInputOpen(int vt)
+{
+    Client *c = &g_clients[vt];
+    if (!c->ring) {
+        Handle mem = CreateMem(1, 0);
+        if (mem < 0) {
+            ReplyStatus((Err)mem);
+            return;
+        }
+        void *va = MemMap(mem, 0, PROT_RW);
+        if (PtrIsErr(va)) {
+            HandleClose(mem);
+            ReplyStatus((Err)(intptr_t)va);
+            return;
+        }
+        c->ring_mem = mem;
+        c->ring = va;
+        ShmRingInit(&c->ring->hdr, INPUT_RING_BYTES);
+    }
+    SvcResult dup = HandleDuplicate(c->ring_mem, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE);
+    if (dup.r0 != ZUZU_OK) {
+        ReplyStatus((Err)dup.r0);
+        return;
+    }
+    Err ok = ZUZU_OK;
+    memcpy(GetMessageBox(), &ok, sizeof(ok));
+    Reply(sizeof(ok), (Handle)dup.r1);
+    HandleClose((Handle)dup.r1);
+    if (vt == g_active && g_switch_to == NO_VT) {
+        SendPointer();
+        g_input.delivered = false;
+        ClientSignal(vt, FB_EVT_INPUT);
+    }
 }
 
 static void ServeFlip(int vt, uint32_t index)
@@ -446,6 +622,9 @@ static void ServeClientCmd(const FbRequest *req, Handle *granted)
             FinishSwitch();
         ReplyStatus(ZUZU_OK);
         break;
+    case FB_CMD_INPUT_OPEN:
+        ServeInputOpen(vt);
+        break;
     default:
         ReplyStatus(ERR_NOSYS);
         break;
@@ -485,13 +664,17 @@ static void HandleRequest(const PortWaitResult *r)
         granted = -1;
         break;
     case FB_CMD_SWITCH:
-        ServeSwitch(req.arg);
+        ReplyStatus(StartSwitch(req.arg));
+        break;
+    case INPUT_CMD_PUSH:
+        ServeInputPush(r->xlen);
         break;
     case FB_CMD_RELEASE:
     case FB_CMD_SET_EVENT:
     case FB_CMD_FLIP:
     case FB_CMD_SET_VSYNC:
     case FB_CMD_DEACTIVATED:
+    case FB_CMD_INPUT_OPEN:
         ServeClientCmd(&req, &granted);
         break;
     default:
@@ -543,7 +726,7 @@ static void ServiceDisplay(void)
 int main(void)
 {
     for (uint32_t vt = 0; vt < FB_MAX_VTS; vt++)
-        g_clients[vt] = (Client){.live = -1, .event = -1};
+        g_clients[vt] = (Client){.live = -1, .event = -1, .ring_mem = -1};
 
     g_port = CreatePort();
     g_event = CreateEvent();

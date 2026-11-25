@@ -1,6 +1,9 @@
 #include "kmi.h"
 #include "ps2dec.h"
 #include <dev/devm.h>
+#include <dev/hid.h>
+#include <dev/protocols/input.h>
+#include <stddef.h>
 #include <dev/keymap.h>
 #include <dev/tty.h>
 #include <util/log.h>
@@ -21,7 +24,20 @@ typedef struct {
     KeymapState keymap;
     KmiRole role;
     uint8_t irq_pos;
+    uint8_t pkt[3];
+    uint8_t pkt_len;
+    uint8_t buttons;
 } KmiPort;
+
+#define MOUSE_SYNC 0x08u
+#define MOUSE_X_SIGN 0x10u
+#define MOUSE_Y_SIGN 0x20u
+#define MOUSE_OVERFLOW 0xC0u
+#define MOUSE_BUTTONS 0x07u
+#define HOTKEY_VTS 8u
+
+static Handle g_gfx = -1;
+static InputPush g_push = {.cmd = INPUT_CMD_PUSH};
 
 /**
  * shared, we bind 2 irqs into 1 event
@@ -192,6 +208,17 @@ static Err PortProbe(KmiPort *p)
         p->role = KMI_ROLE_KBD;
     }
 
+    if (p->role == KMI_ROLE_MOUSE) {
+        rc = KmiSendAck(p, 0xF4);
+        if (rc != ZUZU_OK) {
+            LOG_ERROR(LOG_TAG, "port %u: enable reporting failed: %s", n, StrToError(rc));
+            p->role = KMI_ROLE_NONE;
+            return rc;
+        }
+        p->pkt_len = 0;
+        p->buttons = 0;
+    }
+
     if (p->role == KMI_ROLE_KBD) {
         rc = KmiSendAck(p, 0xF4);
         if (rc != ZUZU_OK) {
@@ -205,22 +232,94 @@ static Err PortProbe(KmiPort *p)
     return ZUZU_OK;
 }
 
+static void FlushInput(void)
+{
+    if (g_push.count == 0)
+        return;
+    if (g_gfx < 0)
+        g_gfx = LookupService("/svc/gfx");
+    if (g_gfx >= 0) {
+        uint32_t len = (uint32_t)(offsetof(InputPush, ev) + g_push.count * sizeof(InputEvent));
+        MsgWrite(&g_push, len);
+        uint32_t got = 0;
+        Err rc = CallPort(g_gfx, len, -1, &got, NULL);
+        if (rc != ZUZU_OK) {
+            HandleClose(g_gfx);
+            g_gfx = -1;
+        }
+    }
+    g_push.count = 0;
+}
+
+static void QueueInput(uint16_t type, uint16_t code, int32_t value)
+{
+    if (g_push.count == INPUT_PUSH_MAX)
+        FlushInput();
+    g_push.ev[g_push.count++] =
+        (InputEvent){.type = type, .code = code, .value = value, .time_ms = (uint32_t)UptimeMs()};
+}
+
+static void MouseFeed(KmiPort *p, uint8_t byte)
+{
+    if (p->pkt_len == 0 && !(byte & MOUSE_SYNC))
+        return;
+    p->pkt[p->pkt_len++] = byte;
+    if (p->pkt_len < sizeof(p->pkt))
+        return;
+    p->pkt_len = 0;
+
+    uint8_t b0 = p->pkt[0];
+    if (b0 & MOUSE_OVERFLOW)
+        return;
+    int32_t dx = (int32_t)p->pkt[1] - ((b0 & MOUSE_X_SIGN) ? 256 : 0);
+    int32_t dy = (int32_t)p->pkt[2] - ((b0 & MOUSE_Y_SIGN) ? 256 : 0);
+
+    uint8_t buttons = b0 & MOUSE_BUTTONS;
+    uint8_t changed = buttons ^ p->buttons;
+    p->buttons = buttons;
+
+    if (dx)
+        QueueInput(INPUT_EV_REL, INPUT_REL_X, dx);
+    if (dy)
+        QueueInput(INPUT_EV_REL, INPUT_REL_Y, -dy);
+    if (changed & 0x01u)
+        QueueInput(INPUT_EV_BTN, INPUT_BTN_LEFT, (buttons & 0x01u) != 0);
+    if (changed & 0x02u)
+        QueueInput(INPUT_EV_BTN, INPUT_BTN_RIGHT, (buttons & 0x02u) != 0);
+    if (changed & 0x04u)
+        QueueInput(INPUT_EV_BTN, INPUT_BTN_MIDDLE, (buttons & 0x04u) != 0);
+    if (dx || dy || changed)
+        QueueInput(INPUT_EV_SYN, 0, 0);
+}
+
+static bool IsVtHotkey(const KmiPort *p, uint8_t usage)
+{
+    bool ctrl = (p->keymap.mods & (KEYMOD_LCTRL | KEYMOD_RCTRL)) != 0;
+    bool alt = (p->keymap.mods & (KEYMOD_LALT | KEYMOD_RALT)) != 0;
+    return ctrl && alt && usage >= HID_KEY_F1 && usage < HID_KEY_F1 + HOTKEY_VTS;
+}
+
 static void PortDrain(KmiPort *p)
 {
     bool pushed = false;
     while (p->kmi->stat & KMISTAT_RXFULL) {
         uint8_t byte = (uint8_t)p->kmi->data;
+        if (p->role == KMI_ROLE_MOUSE) {
+            MouseFeed(p, byte);
+            continue;
+        }
         if (p->role != KMI_ROLE_KBD)
             continue;
 
         Ps2KeyEvent ev;
         if (!Ps2DecoderFeed(&p->dec, byte, &ev))
             continue;
-        // LOG_DEBUG(LOG_TAG, "port %u usage %02x %s", (unsigned)p->irq_pos, ev.usage, ev.pressed ? "down" : "up");
+        QueueInput(INPUT_EV_KEY, ev.usage, ev.pressed ? 1 : 0);
+        QueueInput(INPUT_EV_SYN, 0, 0);
 
         uint8_t seq[KEYMAP_MAX_SEQ];
         size_t n = KeymapFeed(&p->keymap, ev.usage, ev.pressed, seq, sizeof(seq));
-        if (n == 0 || !g_tty_up)
+        if (n == 0 || !g_tty_up || IsVtHotkey(p, ev.usage))
             continue;
         if (ShmRingPush(&g_tty.shm->up_hdr, g_tty.shm->up_data, seq, (uint32_t)n) != n)
             LOG_WARN(LOG_TAG, "tty input ring full, key dropped");
@@ -228,6 +327,7 @@ static void PortDrain(KmiPort *p)
     }
     if (pushed)
         Signal(g_tty.doorbell, 1U << g_tty.bit, false);
+    FlushInput();
 }
 
 static void TtyConnect(void)
