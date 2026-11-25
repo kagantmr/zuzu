@@ -91,13 +91,13 @@ BOOT_MANIFEST := $(BOARD_DIR)/boot$(if $(CONSOLE),.$(CONSOLE)).manifest
 $(if $(wildcard $(BOOT_MANIFEST)),,$(error $(BOOT_MANIFEST) not found: BOARD=$(BOARD) has no CONSOLE=$(CONSOLE) variant))
 SD_MANIFEST   := $(BOARD_DIR)/sd.manifest
 # Optional: services rootsvc spawns from the SD card after fsd is up. Staged
-# as /etc/services.manifest, programs into /sbin.
+# as /system/services.manifest, programs into /sbin.
 SVC_MANIFEST  := $(wildcard $(BOARD_DIR)/services.manifest)
-# Optional: a zzsh script the boot manifest runs in the background, staged as /etc/rc.boot.
-BOOT_RC       := $(wildcard $(BOARD_DIR)/rc.boot)
+# Optional: a zzsh script the boot manifest runs in the background, staged as /system/startup.
+BOOT_RC       := $(wildcard $(BOARD_DIR)/startup)
 
 # Program of each non-comment, non-blank line (the first word of its first |-field),
-# basename only: "bin/zzsh /etc/rc.boot|none:late" -> zzsh
+# basename only: "bin/zzsh /system/startup|none:late" -> zzsh
 manifest-progs = $(sort $(notdir $(shell awk -F'|' \
   '/^[[:space:]]*#/ || /^[[:space:]]*$$/ { next } \
    { n = split($$1, w, /[[:space:]]+/); p = (w[1] == "" && n > 1) ? w[2] : w[1]; \

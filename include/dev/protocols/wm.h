@@ -22,6 +22,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <zuzu/err.h>
+#include <zgfx/theme.h>
 #include <zuzu/msg.h>
 
 /** @brief Register as a client. Grant: a liveness port (PERM_WAIT). Reply: WmReply.token. */
@@ -48,6 +49,10 @@ extern "C" {
 #define WM_CMD_BOOT_STATUS 11u
 /** @brief End the boot splash and show the desktop. Request {cmd, token}. */
 #define WM_CMD_BOOT_DONE 12u
+/** @brief Read the current theme. Request {cmd, token}. Reply: WmTheme. */
+#define WM_CMD_GET_THEME 13u
+/** @brief Switch to a built-in theme. Request: WmCreate with @c title naming it. */
+#define WM_CMD_SET_THEME 14u
 
 /** @brief Input waits in the window's InputRing. */
 #define WM_EVT_INPUT (1u << 0)
@@ -57,10 +62,12 @@ extern "C" {
 #define WM_EVT_CLOSE (1u << 2)
 /** @brief The window list changed (focus, title, a window opened or closed). */
 #define WM_EVT_WINDOWS (1u << 3)
+/** @brief The theme changed; read it again with WM_CMD_GET_THEME. */
+#define WM_EVT_THEME (1u << 4)
 /** @brief Every event bit wm may signal for one window. */
-#define WM_EVT_ALL (WM_EVT_INPUT | WM_EVT_FRAME | WM_EVT_CLOSE | WM_EVT_WINDOWS)
+#define WM_EVT_ALL (WM_EVT_INPUT | WM_EVT_FRAME | WM_EVT_CLOSE | WM_EVT_WINDOWS | WM_EVT_THEME)
 /** @brief Bits each window needs in the client's event word. */
-#define WM_EVT_BITS 4u
+#define WM_EVT_BITS 5u
 
 /** @brief Below every normal window, never focused, no frame (the desktop). */
 #define WM_LAYER_DESKTOP 0u
@@ -75,10 +82,6 @@ extern "C" {
 #define WM_TITLE_MAX 32u
 /** @brief Longest title in a WM_CMD_LIST entry, including the terminating NUL. */
 #define WM_LIST_TITLE_MAX 20u
-/** @brief Height of the title bar wm draws above a normal window. */
-#define WM_TITLE_H 28
-/** @brief Width of the border wm draws around a normal window. */
-#define WM_BORDER 1
 
 /** @brief A request that names only a window. */
 typedef struct {
@@ -131,6 +134,12 @@ typedef struct {
     char title[WM_LIST_TITLE_MAX]; /**< NUL-terminated title, cut short if it does not fit. */
 } WmWindowInfo;
 
+/** @brief WM_CMD_GET_THEME reply. */
+typedef struct {
+    Err status;  /**< ZUZU_OK or an error. */
+    Theme theme; /**< The current theme. */
+} WmTheme;
+
 /** @brief WM_CMD_LIST reply. */
 typedef struct {
     Err status;                            /**< ZUZU_OK or an error. */
@@ -140,6 +149,7 @@ typedef struct {
 
 _Static_assert(sizeof(WmList) <= MSG_BUF_SIZE, "WmList must fit the message buffer");
 _Static_assert(sizeof(WmCreate) <= MSG_BUF_SIZE, "WmCreate must fit the message buffer");
+_Static_assert(sizeof(WmTheme) <= MSG_BUF_SIZE, "WmTheme must fit the message buffer");
 
 #ifdef __cplusplus
 }

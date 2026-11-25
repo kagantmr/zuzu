@@ -210,3 +210,20 @@ Err WinBootStatus(WinConn *conn, const char *text)
 }
 
 Err WinBootDone(WinConn *conn) { return Simple(conn, WM_CMD_BOOT_DONE, 0, 0, -1); }
+
+Err WinGetTheme(WinConn *conn, Theme *theme)
+{
+    WmRequest req = {.cmd = WM_CMD_GET_THEME, .token = conn->token};
+    WmTheme reply;
+    Err rc = WmCall(conn, &req, sizeof(req), -1, &reply, sizeof(reply), NULL);
+    if (rc == ZUZU_OK)
+        *theme = reply.theme;
+    return rc;
+}
+
+Err WinSetTheme(WinConn *conn, const char *name)
+{
+    WmCreate req = {.cmd = WM_CMD_SET_THEME, .token = conn->token};
+    strncpy(req.title, name, WM_TITLE_MAX - 1);
+    return WmCall(conn, &req, sizeof(req), -1, NULL, 0, NULL);
+}

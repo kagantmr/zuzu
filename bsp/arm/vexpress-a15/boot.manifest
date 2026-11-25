@@ -20,7 +20,7 @@ bin/netd|none:prio=4,maxprio=4|/svc/netd
 bin/wm|none:late,prio=1,maxprio=1|/svc/wm
 bin/panel|none:late,prio=1,maxprio=1
 bin/zzsh|none:late,respawn
-bin/zzsh /etc/rc.boot|none:late
+bin/zzsh /system/startup|none:late
 bin/logsave|none:late
 
 # Everything else is spawned from the SD card: see services.manifest.

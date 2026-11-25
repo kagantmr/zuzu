@@ -62,7 +62,7 @@ SD_STAGE_DIR   ?= $(O)/sdcard
 sdimg-stage: $(SD_PROGS:%=$(O)/user/%.zxf) $(SVC_PROGS:%=$(O)/user/%.zxf) $(SVC_MANIFEST) \
              $(BOOT_RC) $(SD_LIB_ARCHIVES) $(USER_CRT0) $(ZCRT_ARCHIVE)
 	@rm -rf $(SD_STAGE_DIR)
-	@mkdir -p $(SD_STAGE_DIR)/bin $(SD_STAGE_DIR)/lib $(SD_STAGE_DIR)/include
+	@mkdir -p $(SD_STAGE_DIR)/bin $(SD_STAGE_DIR)/lib $(SD_STAGE_DIR)/include $(SD_STAGE_DIR)/settings
 	@if [ -d "$(SD_ROOT_DIR)" ]; then \
 	    cp -R $(SD_ROOT_DIR)/. $(SD_STAGE_DIR)/; \
 	    echo "  STAGE   $(SD_ROOT_DIR)/ -> $(SD_STAGE_DIR)/"; \
@@ -77,14 +77,14 @@ sdimg-stage: $(SD_PROGS:%=$(O)/user/%.zxf) $(SVC_PROGS:%=$(O)/user/%.zxf) $(SVC_
 		echo "  STAGE   sbin/$$prog"; \
 	done
 	@if [ -n "$(SVC_MANIFEST)" ]; then \
-		mkdir -p $(SD_STAGE_DIR)/etc; \
-		cp $(SVC_MANIFEST) $(SD_STAGE_DIR)/etc/services.manifest; \
-		echo "  STAGE   etc/services.manifest"; \
+		mkdir -p $(SD_STAGE_DIR)/system; \
+		cp $(SVC_MANIFEST) $(SD_STAGE_DIR)/system/services.manifest; \
+		echo "  STAGE   system/services.manifest"; \
 	fi
 	@if [ -n "$(BOOT_RC)" ]; then \
-		mkdir -p $(SD_STAGE_DIR)/etc; \
-		cp $(BOOT_RC) $(SD_STAGE_DIR)/etc/rc.boot; \
-		echo "  STAGE   etc/rc.boot"; \
+		mkdir -p $(SD_STAGE_DIR)/system; \
+		cp $(BOOT_RC) $(SD_STAGE_DIR)/system/startup; \
+		echo "  STAGE   system/startup"; \
 	fi
 	@for lib in $(SD_LIBS); do \
 		cp $(O)/user/lib/$$lib.a $(SD_STAGE_DIR)/lib/$$lib.a; \

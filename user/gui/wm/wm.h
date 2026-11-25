@@ -8,6 +8,8 @@
 #include <types.h>
 
 #define WM_MAX_CLIENTS 16
+#define WM_TITLE_H 28
+#define WM_BORDER 1
 
 #define RGB565(r, g, b) ((uint16_t)((((r) & 0xF8U) << 8) | (((g) & 0xFCU) << 3) | ((b) >> 3)))
 

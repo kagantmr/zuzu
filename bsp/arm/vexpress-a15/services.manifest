@@ -1,4 +1,4 @@
-# zuzu SD services manifest, staged to /etc/services.manifest
+# zuzu SD services manifest, staged to /system/services.manifest
 # format: <program>|<role>[:flags][|<service-path>]  (same as boot.manifest)
 # Spawned by rootsvc once /svc/fsd is up; programs are staged into /sbin.
 # A service-path is awaited before the initrd's "late" entries are spawned.

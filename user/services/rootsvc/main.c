@@ -18,7 +18,7 @@
 #define MAX_KITTENS 30
 #define STACK_SIZE (16 * 1024)
 #define INITRD_VA (USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE))
-#define SD_SERVICES_MANIFEST "/etc/services.manifest"
+#define SD_SERVICES_MANIFEST "/system/services.manifest"
 #define MANIFEST_PATH_MAX 64
 
 typedef enum {

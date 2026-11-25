@@ -154,6 +154,24 @@ Err WinBootStatus(WinConn *conn, const char *text);
  */
 Err WinBootDone(WinConn *conn);
 
+/**
+ * @brief Reads the current theme.
+ *
+ * @param[in]  conn  Connection from WinConnect().
+ * @param[out] theme The theme.
+ * @return ZUZU_OK or an error.
+ */
+Err WinGetTheme(WinConn *conn, Theme *theme);
+
+/**
+ * @brief Switches every window to a built-in theme.
+ *
+ * @param[in] conn Connection from WinConnect().
+ * @param[in] name Theme name, as ThemeFind() takes it.
+ * @return ZUZU_OK, or ERR_NOENT if there is no such theme.
+ */
+Err WinSetTheme(WinConn *conn, const char *name);
+
 #ifdef __cplusplus
 }
 #endif
