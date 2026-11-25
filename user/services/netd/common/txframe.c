@@ -1,7 +1,7 @@
 #include "txframe.h"
 #include <zuzu/err.h>
 
-int TxFrameInit(TxFrame *f, Netif *nif, uint16_t headroom)
+int TxFrameInit(TxFrame *f, NetInterface *nif, uint16_t headroom)
 {
     NicFrame *slot = PacketRingReserve(nif->drv.tx_ring);
     if (!slot)

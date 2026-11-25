@@ -42,7 +42,7 @@ uint16_t InetChecksum(uint8_t *data, size_t len)
     return InetCsumFold(InetCsumPartial(data, len, 0));
 }
 
-void IpRx(uint8_t *data, uint16_t len, const uint8_t *src_mac)
+void IpRx(NetInterface *nif, uint8_t *data, uint16_t len, const uint8_t *src_mac)
 {
     if (len < 20) {
         return;

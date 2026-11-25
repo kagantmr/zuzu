@@ -23,7 +23,7 @@ static struct {
 } acd;
 
 /* Builds an Ethernet frame around len bytes of data in nif's tx ring and sends it. */
-static int ArpTxBytes(Netif *nif, uint8_t *dst_mac, uint16_t ethertype, const void *data,
+static int ArpTxBytes(NetInterface *nif, uint8_t *dst_mac, uint16_t ethertype, const void *data,
                       uint16_t len)
 {
     TxFrame f;

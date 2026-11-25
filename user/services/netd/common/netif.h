@@ -35,19 +35,19 @@ typedef struct Netif {
     Ipv4Addr gateway;          /**< Default gateway learned on this interface. */
     Ipv4Addr dns;              /**< Resolver learned on this interface. */
     NetifDriver drv;           /**< Driver link; doorbell is -1 while no driver is attached. */
-} Netif;
+} NetInterface;
 
 /** @brief Interface table. */
-extern Netif netifs[NETIF_MAX];
+extern NetInterface netifs[NETIF_MAX];
 
 /** @brief The only interface until routing picks one per packet. */
 #define netif (netifs[0])
 
 /** @brief Directed broadcast address of @p n's subnet. */
-static inline Ipv4Addr NetifBroadcast(const Netif *n) { return n->ip | ~n->netmask; }
+static inline Ipv4Addr NetifBroadcast(const NetInterface *n) { return n->ip | ~n->netmask; }
 
 /** @brief Whether @p ip is on @p n's subnet. */
-static inline bool NetifOnLink(const Netif *n, Ipv4Addr ip)
+static inline bool NetifOnLink(const NetInterface *n, Ipv4Addr ip)
 {
     return ((ip ^ n->ip) & n->netmask) == 0;
 }

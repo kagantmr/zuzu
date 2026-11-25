@@ -7,7 +7,7 @@
 #include <types.h>
 
 typedef struct {
-    Netif *nif;     /* interface whose tx ring holds slot */
+    NetInterface *nif;     /* interface whose tx ring holds slot */
     NicFrame *slot; /* reserved tx-ring slot (head not yet advanced) */
     uint16_t front;    /* offset of the current outermost byte          */
     uint16_t end;      /* offset one past the last byte                 */
@@ -15,7 +15,7 @@ typedef struct {
 
 /* Reserve a slot in nif's tx ring leaving "headroom" bytes in front of the payload.
    Returns ZUZU_OK, or ERR_BUFFULL when the ring is full. */
-int TxFrameInit(TxFrame *f, Netif *nif, uint16_t headroom);
+int TxFrameInit(TxFrame *f, NetInterface *nif, uint16_t headroom);
 
 /* Append "n" payload bytes after the current content; returns a pointer to the
    region to fill, or NULL on overflow. */
