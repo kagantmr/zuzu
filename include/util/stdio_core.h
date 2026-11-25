@@ -80,6 +80,13 @@ void StdioCloseTty(void);
 int StdioRouteTty(const char *alias);
 
 /**
+ * @brief Chooses the endpoint the first terminal session will attach to, without connecting.
+ *
+ * @param[in] alias Endpoint name; "" is the default. Ignored if it is too long.
+ */
+void StdioSetTtyAlias(const char *alias);
+
+/**
  * @brief Sets the terminal mode; it survives a reconnect.
  *
  * @param[in] flags TTY_MODE_* flags.

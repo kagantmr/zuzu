@@ -85,6 +85,11 @@ _Static_assert(sizeof(TtyShm) <= 4096, "TtyShm must fit in the one shared page")
 #define TTY_DIR_OUT (1u << 1)
 /** @brief Provider direction: both, as a UART. The default. */
 #define TTY_DIR_BOTH (TTY_DIR_IN | TTY_DIR_OUT)
+/**
+ * @brief Provider flag, alongside the TTY_DIR_* bits: programs reach this endpoint only by naming
+ * it, never as the default. For terminals inside other programs, such as a GUI window.
+ */
+#define TTY_EP_EXPLICIT (1u << 2)
 /** @brief Give ttysvc the caller's event. TtyNotifyRequest; grants the event. */
 #define TTY_NOTIFY 3
 /** @brief Set a consumer's mode. TtySetModeRequest. */

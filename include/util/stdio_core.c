@@ -99,6 +99,13 @@ int StdioOpenTty(void)
 
 void StdioCloseTty(void) { Disconnect(); }
 
+void StdioSetTtyAlias(const char *alias)
+{
+    if (!alias || strlen(alias) >= TTY_NAME_MAX || g_state == STDIO_READY)
+        return;
+    strcpy(g_alias, alias);
+}
+
 int StdioRouteTty(const char *alias)
 {
     if (!alias || strlen(alias) >= TTY_NAME_MAX)

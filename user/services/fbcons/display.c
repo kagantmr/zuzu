@@ -1,5 +1,5 @@
 #include "fbcons.h"
-#include "font16x16.h"
+#include <util/font12x16.h>
 #include <dev/protocols/fb.h>
 #include <dev/protocols/input.h>
 #include <string.h>
@@ -52,7 +52,7 @@ void DisplayDrawCell(uint32_t col, uint32_t row, char ch, uint16_t fg, uint16_t 
     uint32_t idx = (uint8_t)ch;
     if (!DisplayPrintable((uint8_t)idx))
         idx = ' ';
-    const uint16_t *glyph = FONT16X16[idx - FONT_FIRST_CHAR];
+    const uint16_t *glyph = FONT12X16[idx - FONT_FIRST_CHAR];
 
     for (uint32_t gy = 0; gy < FONT_GLYPH_H; gy++) {
         uint16_t *dst = Pixel(col * FONT_GLYPH_W, (row * FONT_GLYPH_H) + gy);

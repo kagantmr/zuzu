@@ -2,14 +2,28 @@
 // Source font: /Users/kagantemur/Downloads/zuzufont12-Medium.ttf
 // 12x16 1-bit glyphs, ASCII 32..126
 
+/**
+ * @file
+ * @brief The console font: 12x16 one-bit glyphs for ASCII 32 to 126, one uint16_t per row, leftmost
+ * pixel in bit 11.
+ */
+
+#ifndef UTIL_FONT12X16_H
+#define UTIL_FONT12X16_H
+
 #include <stdint.h>
 
+/** @brief First character in the font. */
 #define FONT_FIRST_CHAR 32
+/** @brief Last character in the font. */
 #define FONT_LAST_CHAR  126
+/** @brief Glyph width in pixels. */
 #define FONT_GLYPH_W    12
+/** @brief Glyph height in pixels. */
 #define FONT_GLYPH_H    16
 
-static const uint16_t FONT16X16[95][16] = {
+/** @brief Glyph rows, indexed by character minus FONT_FIRST_CHAR. */
+static const uint16_t FONT12X16[95][16] = {
     { 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000 }, // 32 'space'
     { 0x00E0, 0x0040, 0x0040, 0x0040, 0x0040, 0x0040, 0x0040, 0x0040, 0x0040, 0x0000, 0x0040, 0x0040, 0x0000, 0x0000, 0x0000, 0x0000 }, // 33 '!'
     { 0x0090, 0x0090, 0x0090, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000 }, // 34 '"'
@@ -106,3 +120,5 @@ static const uint16_t FONT16X16[95][16] = {
     { 0x0180, 0x00C0, 0x0040, 0x0040, 0x0040, 0x0020, 0x0010, 0x0020, 0x0040, 0x0040, 0x0040, 0x00C0, 0x0180, 0x0000, 0x0000, 0x0000 }, // 125 '}'
     { 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0180, 0x0264, 0x0018, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000 }, // 126 '~'
 };
+
+#endif /* UTIL_FONT12X16_H */

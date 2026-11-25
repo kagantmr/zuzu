@@ -356,7 +356,8 @@ char **environ = __env;
  * @brief Called by crt0 before anything else: points environ at the environment the parent gave.
  *
  * The parent lays out argv and the environment as one block, the environment right after argv's
- * NULL, so envp is argv + argc + 1. A process started without a block keeps the empty one.
+ * NULL, so envp is argv + argc + 1. A process started without a block keeps the empty one. If
+ * $TTY is set, stdio attaches to that terminal endpoint instead of the default one.
  *
  * @param[in] argc Argument count from the parent.
  * @param[in] argv Argument table from the parent, or NULL.
@@ -365,6 +366,9 @@ void __zuzu_env_init(int argc, char **argv)
 {
     if (argc > 0 && argv)
         environ = argv + argc + 1;
+    const char *tty = getenv("TTY");
+    if (tty && tty[0])
+        StdioSetTtyAlias(tty);
 }
 
 /**

@@ -5,9 +5,10 @@
 #include <stdint.h>
 #include <types.h>
 #include <dev/protocols/input.h>
+#include <util/vterm.h>
 
-#define MAX_COLS 128
-#define MAX_ROWS 64
+#define MAX_COLS VTERM_MAX_COLS
+#define MAX_ROWS VTERM_MAX_ROWS
 #define DEFAULT_FG 0xC618U
 #define DEFAULT_BG 0x0000U
 
@@ -23,12 +24,5 @@ void DisplayDrawCell(uint32_t col, uint32_t row, char ch, uint16_t fg, uint16_t 
 void DisplayClearRow(uint32_t row, uint16_t color);
 void DisplayScrollUp(uint16_t color);
 
-uint16_t ColorFromRgb(uint8_t r, uint8_t g, uint8_t b);
-uint16_t ColorFromIndex(uint8_t index);
-
-void TermInit(void);
-void TermFeed(uint8_t b);
-void TermShowCursor(bool on);
-void TermRepaint(bool cursor);
 
 #endif /* FBCONS_H */

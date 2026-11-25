@@ -1,5 +1,4 @@
-#define LV_CONF_INCLUDE_SIMPLE
-#include "vendor/lvgl/lvgl.h"
+#include "gui.h"
 
 #include <dev/hid.h>
 #include <dev/keymap.h>
@@ -11,7 +10,7 @@
 #include <zuzu/uptime.h>
 #include <zuzu/zuzu.h>
 
-#define LOG_TAG "lvhello"
+#define LOG_TAG "gui"
 #include <util/log.h>
 
 #define FLIP_TIMEOUT_MS 100
@@ -19,7 +18,8 @@
 #define DISPLAY_WAIT_TRIES 500
 #define DISPLAY_WAIT_MS 10
 #define VT_EVENTS (FB_EVT_ACTIVATE | FB_EVT_DEACTIVATE)
-#define WAKE_EVENTS (VT_EVENTS | FB_EVT_INPUT)
+#define HOOK_BITS ((1U << GUI_BIT_TTY) | (1U << GUI_BIT_CHILD))
+#define WAKE_EVENTS (VT_EVENTS | FB_EVT_INPUT | HOOK_BITS)
 #define INPUT_BATCH 16
 #define KEY_QUEUE 32
 
@@ -32,7 +32,8 @@ static bool g_active;
 static InputRing *g_ring;
 static lv_point_t g_ptr;
 static bool g_ptr_down;
-static lv_obj_t *g_count_label;
+static GuiKeyHook g_key_hook;
+static GuiWakeHook g_wake_hooks[32];
 static KeymapState g_keymap;
 static uint32_t g_key_of_usage[256];
 static struct {
@@ -42,7 +43,6 @@ static struct {
 static uint32_t g_key_head;
 static uint32_t g_key_tail;
 static uint32_t g_last_key;
-static uint32_t g_clicks;
 
 static Err FbCall(uint32_t cmd, uint32_t arg, Handle grant, void *reply, uint32_t reply_len,
                   Handle *reply_grant)
@@ -162,8 +162,22 @@ static void QueueKey(uint32_t key, bool pressed)
     g_key_head++;
 }
 
+Handle GuiEvent(void) { return g_event; }
+
+void GuiSetKeyHook(GuiKeyHook hook) { g_key_hook = hook; }
+
+void GuiSetWakeHook(uint32_t bit, GuiWakeHook hook)
+{
+    if (bit < 32U)
+        g_wake_hooks[bit] = hook;
+}
+
 static void OnKey(uint8_t usage, bool pressed)
 {
+    if (g_key_hook) {
+        g_key_hook(usage, pressed);
+        return;
+    }
     bool shift = (g_keymap.mods & (KEYMOD_LSHIFT | KEYMOD_RSHIFT)) != 0;
     uint8_t seq[KEYMAP_MAX_SEQ];
     size_t n = KeymapFeed(&g_keymap, usage, pressed, seq, sizeof(seq));
@@ -253,42 +267,13 @@ static void HandleVtEvents(uint32_t bits)
         g_active = true;
         lv_obj_invalidate(lv_screen_active());
     }
+    for (uint32_t bit = 0; bit < 32U; bit++) {
+        if ((bits & (1U << bit)) && g_wake_hooks[bit])
+            g_wake_hooks[bit]();
+    }
 }
 
 static uint32_t TickCb(void) { return (uint32_t)UptimeMs(); }
-
-static void OnClick(lv_event_t *e)
-{
-    (void)e;
-    lv_label_set_text_fmt(g_count_label, "Clicked %u times", (unsigned)++g_clicks);
-}
-
-static void BuildUi(void)
-{
-    lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x1e2a38), 0);
-
-    lv_obj_t *label = lv_label_create(scr);
-    lv_label_set_text(label, "Hello from zuzuOS + LVGL");
-    lv_obj_set_style_text_color(label, lv_color_hex(0xffffff), 0);
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, -30);
-
-    lv_obj_t *spinner = lv_spinner_create(scr);
-    lv_obj_set_size(spinner, 64, 64);
-    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, 40);
-
-    lv_obj_t *text = lv_textarea_create(scr);
-    lv_textarea_set_one_line(text, true);
-    lv_textarea_set_placeholder_text(text, "Type here");
-    lv_obj_set_width(text, 320);
-    lv_obj_align(text, LV_ALIGN_CENTER, 0, 130);
-
-    lv_obj_t *button = lv_button_create(scr);
-    lv_obj_align(button, LV_ALIGN_CENTER, 0, 200);
-    lv_obj_add_event_cb(button, OnClick, LV_EVENT_CLICKED, NULL);
-    g_count_label = lv_label_create(button);
-    lv_label_set_text(g_count_label, "Clicked 0 times");
-}
 
 static void CreatePointer(void)
 {
@@ -338,8 +323,8 @@ int main(void)
     lv_display_set_flush_cb(disp, FlushCb);
 
     CreateKeypad();
-    BuildUi();
     CreatePointer();
+    ShellInit();
 
     for (;;) {
         Duration wait = TIMEOUT_INFINITE;

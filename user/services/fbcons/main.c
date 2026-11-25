@@ -2,6 +2,7 @@
 #include <dev/protocols/fb.h>
 #include <dev/keymap.h>
 #include <dev/tty.h>
+#include <util/vterm.h>
 #include <zuzu/service.h>
 #include <zuzu/shm_ring.h>
 #include <zuzu/zuzu.h>
@@ -19,6 +20,27 @@ static Handle g_event = -1;
 static TtyConn g_tty;
 static Handle g_tty_port = -1;
 static KeymapState g_keymap;
+static VTerm g_term;
+
+static void DrawCell(void *ctx, uint32_t col, uint32_t row, char ch, uint16_t fg, uint16_t bg)
+{
+    (void)ctx;
+    DisplayDrawCell(col, row, ch, fg, bg);
+}
+
+static void ClearRow(void *ctx, uint32_t row, uint16_t color)
+{
+    (void)ctx;
+    DisplayClearRow(row, color);
+}
+
+static void ScrollUp(void *ctx, uint16_t color)
+{
+    (void)ctx;
+    DisplayScrollUp(color);
+}
+
+static const VTermOps g_term_ops = {.draw_cell = DrawCell, .clear_row = ClearRow, .scroll_up = ScrollUp};
 
 #define KEY_BATCH 16
 
@@ -28,16 +50,16 @@ static bool Drain(void)
     bool any = false;
     ShmRingHdr *hdr = &g_tty.shm->down_hdr;
 
-    TermShowCursor(false);
+    VTermShowCursor(&g_term, false);
     for (;;) {
         uint32_t n = ShmRingPop(hdr, g_tty.shm->down_data, buf, sizeof(buf));
         if (n == 0)
             break;
         for (uint32_t i = 0; i < n; i++)
-            TermFeed(buf[i]);
+            VTermFeed(&g_term, buf[i]);
         any = true;
     }
-    TermShowCursor(true);
+    VTermShowCursor(&g_term, true);
     return any;
 }
 
@@ -90,8 +112,8 @@ int main(void)
     }
 
     KeymapInit(&g_keymap);
-    TermInit();
-    TermShowCursor(true);
+    VTermInit(&g_term, &g_term_ops, NULL, DisplayCols(), DisplayRows(), DEFAULT_FG, DEFAULT_BG);
+    VTermShowCursor(&g_term, true);
 
     rc = SetupTty();
     if (rc != ZUZU_OK) {
@@ -119,7 +141,8 @@ int main(void)
         }
         if (fb & FB_EVT_ACTIVATE) {
             DisplaySetActive(true);
-            TermRepaint(true);
+            DisplayClear(DEFAULT_BG);
+            VTermRepaint(&g_term, true);
         }
         bool kick = (fb & FB_EVT_INPUT) && ForwardKeys();
         if (Drain())

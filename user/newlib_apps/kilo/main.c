@@ -54,6 +54,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 
 /* Syntax highlight types */
 #define HL_NORMAL 0
@@ -365,6 +366,13 @@ int getCursorPosition(int ifd, int ofd, int *rows, int *cols) {
  * Returns 0 on success, -1 on error. */
 int getWindowSize(int ifd, int ofd, int *rows, int *cols) {
     int orig_row, orig_col, retval;
+    struct winsize ws;
+
+    if (ioctl(ofd, TIOCGWINSZ, &ws) == 0 && ws.ws_col != 0 && ws.ws_row != 0) {
+        *cols = ws.ws_col;
+        *rows = ws.ws_row;
+        return 0;
+    }
 
     /* Get the initial position so we can restore it later. */
     retval = getCursorPosition(ifd,ofd,&orig_row,&orig_col);

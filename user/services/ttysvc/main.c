@@ -47,6 +47,7 @@ typedef struct {
     int fg;       /* session slot of the foreground consumer, or -1 */
     uint32_t cols; /* window size reported by a provider, 0 while unknown */
     uint32_t rows;
+    bool explicit_only; /* never picked as the default endpoint */
 } Endpoint;
 
 static Session g_sessions[MAX_SESSIONS];
@@ -257,6 +258,8 @@ static int DefaultEndpoint(void)
     for (int i = 0; i < MAX_ENDPOINTS; i++) {
         if (!g_endpoints[i].in_use || ProviderCount(&g_endpoints[i]) == 0)
             continue;
+        if (g_endpoints[i].explicit_only)
+            continue;
         if (g_endpoints[i].fg < 0)
             return i;
         if (first < 0)
@@ -313,7 +316,7 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     bool new_ep = false;
     Err err = ZUZU_OK;
     if (provider) {
-        if (req.dir & ~TTY_DIR_BOTH)
+        if (req.dir & ~(TTY_DIR_BOTH | TTY_EP_EXPLICIT))
             err = ERR_BADARG;
         if (req.alias[0] == '\0')
             AutoAlias(req.alias);
@@ -362,7 +365,9 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     Session *s = &g_sessions[slot];
     *s = (Session){.in_use = true,
                    .provider = provider,
-                   .dir = provider ? (req.dir ? req.dir : TTY_DIR_BOTH) : 0,
+                   .dir = provider ? ((req.dir & TTY_DIR_BOTH) ? (req.dir & TTY_DIR_BOTH)
+                                                               : TTY_DIR_BOTH)
+                                   : 0,
                    .endpoint = ep,
                    .order = g_order++,
                    .shm = (TtyShm *)va,
@@ -373,6 +378,8 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     if (g_gen[slot] == 0)
         g_gen[slot] = 1;
     memset(s->shm, 0, sizeof(*s->shm));
+    if (provider && (req.dir & TTY_EP_EXPLICIT))
+        g_endpoints[ep].explicit_only = true;
     ShmRingInit(&s->shm->up_hdr, TTY_RING_DATA_SIZE);
     ShmRingInit(&s->shm->down_hdr, TTY_RING_DATA_SIZE);
     ShmRingInit(&s->shm->err_hdr, TTY_ERR_DATA_SIZE);
