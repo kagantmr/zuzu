@@ -36,21 +36,24 @@ static void UdpEchoHandler(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port, 
     UdpSend(src_ip, dst_port, src_port, data, len);
 }
 
-static bool link_up = true;
-
 static void CheckLink(void)
 {
-    bool up = !netif.drv.stats->link_down;
-    if (up == link_up)
-        return;
-    link_up = up;
-    if (!up) {
-        LOG_INFO(LOG_TAG, "link down");
-        ArpFlush(&netif);
-        DhcpLinkDown(&netif);
-    } else {
-        LOG_INFO(LOG_TAG, "link up");
-        DhcpLinkUp(&netif);
+    for (int i = 0; i < NETIF_MAX; i++) {
+        NetInterface *nif = &netifs[i];
+        if (!NetifAttached(nif))
+            continue;
+        bool up = !nif->drv.stats->link_down;
+        if (up == nif->link_up)
+            continue;
+        nif->link_up = up;
+        if (!up) {
+            LOG_INFO(LOG_TAG, "%s: link down", nif->name);
+            ArpFlush(nif);
+            DhcpLinkDown(nif);
+        } else {
+            LOG_INFO(LOG_TAG, "%s: link up", nif->name);
+            DhcpLinkUp(nif);
+        }
     }
 }
 
@@ -82,14 +85,6 @@ static Err InitNetdServices(void)
     }
 
     return retval;
-}
-
-static void RejectCall(Err err, Handle granted)
-{
-    if (granted >= 0)
-        HandleClose(granted);
-    MsgWrite(&err, sizeof(err));
-    Reply(sizeof(err), -1);
 }
 
 /** @brief Publish @p req in the control block and tell the driver to apply it. */
@@ -169,104 +164,43 @@ static void HandleNetdCall(const PortWaitResult *call)
     }
 }
 
-static Err CheckStage(const PortWaitResult *r, uint8_t opcode, Marker drv_marker)
+/** @brief tcpip side of a driver handshake: installs the rings the ctl thread mapped. */
+static __attribute__((cold)) void ApplyAttach(const CtlAttach *a)
 {
-    if (r->xlen != 1 || *(uint8_t *)GetMessageBox() != opcode)
-        return ERR_BADARG;
-    if (r->granted < 0)
-        return ERR_BADHANDLE;
-    if (r->sender != drv_marker)
-        return ERR_BADHANDLE;
-    return ZUZU_OK;
-}
+    NetInterface *nif = &netifs[a->slot];
+    NetifDriver old = nif->drv;
 
-/**
- * @brief Whenever a NIC sends NETD_DRVHANDSHAKE_INIT, does the 3-message handshake.
- */
-static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
-{
-    if (res.granted < 0) {
-        RejectCall(ERR_BADHANDLE, -1);
-        return ERR_BADHANDLE;
-    }
-    netif.drv.doorbell = res.granted;
+    memcpy(nif->mac, a->mac, sizeof(nif->mac));
+    memcpy(nif->name, a->name, sizeof(nif->name));
+    nif->drv.tx_ring = a->tx_ring;
+    nif->drv.rx_ring = a->rx_ring;
+    nif->drv.stats = (NicStatsBlock *)((uint8_t *)a->rx_ring + NIC_STATS_OFFSET);
+    nif->drv.cntl = (NicCntlBlock *)((uint8_t *)a->rx_ring + NIC_CNTL_OFFSET);
+    nif->drv.doorbell = a->doorbell;
+    nif->link_up = !nif->drv.stats->link_down;
 
-    Marker drv_marker = res.sender;
-    const uint8_t *msg = GetMessageBox();
-    memcpy(&netif.mac[0], msg + 1, 4); // mac lo
-    memcpy(&netif.mac[4], msg + 5, 2); // low 16 bits of mac hi
-
-    Err rc = ZUZU_OK;
-    MsgWrite(&rc, sizeof(rc));
-    PortWaitResult r = ReplyRecvPort(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE);
-    if (r.status != ZUZU_OK)
-        return r.status;
-    rc = CheckStage(&r, NETD_DRVHANDSHAKE_STAGE2, drv_marker);
-    if (rc != ZUZU_OK) {
-        RejectCall(rc, r.granted);
-        return rc;
-    }
-    NicRing *tx_ring = (NicRing *)MemMap(r.granted, 0, PROT_RW);
-    if (PtrIsErr(tx_ring)) {
-        RejectCall(ERR_BADHANDLE, r.granted);
-        return ERR_BADHANDLE;
+    if (!a->reattach) {
+        DhcpStart(nif);
+        return;
     }
 
-    rc = ZUZU_OK;
-    MsgWrite(&rc, sizeof(rc));
-    r = ReplyRecvPort(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE);
-    if (r.status != ZUZU_OK)
-        return r.status;
-    rc = CheckStage(&r, NETD_DRVHANDSHAKE_STAGE3, drv_marker);
-    if (rc != ZUZU_OK) {
-        RejectCall(rc, r.granted);
-        return rc;
+    if (old.cntl) {
+        for (uint32_t i = 0; i < NIC_MCAST_MAX; i++)
+            for (uint32_t b = 0; b < MAC_ADDR_LEN; b++)
+                nif->drv.cntl->mcast[i][b] = old.cntl->mcast[i][b];
+        nif->drv.cntl->mcast_count = old.cntl->mcast_count;
+        nif->drv.cntl->flags = old.cntl->flags;
+        Signal(nif->drv.doorbell, NIC_DOORBELL_CNTL, false);
     }
-    NicRing *rx_ring = (NicRing *)MemMap(r.granted, 0, PROT_RW);
-    if (PtrIsErr(rx_ring)) {
-        RejectCall(ERR_BADHANDLE, r.granted);
-        return ERR_BADHANDLE;
-    }
-    netif.drv.tx_ring = tx_ring;
-    netif.drv.rx_ring = rx_ring;
-    netif.drv.stats = (NicStatsBlock *)((uint8_t *)rx_ring + NIC_STATS_OFFSET);
-    netif.drv.cntl = (NicCntlBlock *)((uint8_t *)rx_ring + NIC_CNTL_OFFSET);
-    strncpy(netif.name, "eth0", sizeof(netif.name) - 1);
+    if (old.tx_ring)
+        MemUnmap(old.tx_ring);
+    if (old.rx_ring)
+        MemUnmap(old.rx_ring);
+    if (old.doorbell >= 0)
+        HandleClose(old.doorbell);
 
-    Handle bell;
-    rc = HandleDup(g_event, PERM_SEND | PERM_TXFR, MARKER_NONE, &bell);
-    if (rc != ZUZU_OK) {
-        RejectCall(rc, -1);
-        return rc;
-    }
-
-    MsgWriter w;
-    MsgWriterInit(&w);
-    MsgPutU32(&w, ZUZU_OK);
-    MsgPutStr(&w, netif.name);
-    rc = Reply(w.off, bell);
-    HandleClose(bell);
-    return rc;
-}
-
-static Err WaitForDriver(void)
-{
-    Err retval = ZUZU_OK;
-    while (1) {
-        PortWaitResult res = WaitOnPort(g_svc_port, TIMEOUT_INFINITE);
-        if (res.status != ZUZU_OK)
-            return res.status;
-        // see if we got a proper handshake initiation
-        if (res.xlen >= 9 && *((uint8_t *)GetMessageBox()) == NETD_DRVHANDSHAKE_INIT) {
-            retval = PerformDriverHandshake(res);
-            if (retval < 0)
-                return retval;
-            break;
-        }
-
-        RejectCall(ERR_BADARG, res.granted);
-    }
-    return retval;
+    ArpFlush(nif);
+    DhcpLinkUp(nif);
 }
 
 int main()
@@ -276,11 +210,6 @@ int main()
     NetifInit();
 
     retval = InitNetdServices();
-    if (retval < 0)
-        return retval;
-
-    /* then wait for a driver to register, because without a driver netd wouldnt do anything */
-    retval = WaitForDriver();
     if (retval < 0)
         return retval;
 
@@ -295,8 +224,7 @@ int main()
     UdpInit();
     PortInit();
     DnsInit();
-    DhcpInit(OnDhcpBound);
-    DhcpStart(&netif); /* kicks off DORA; OnDhcpBound fires when bound */
+    DhcpInit(OnDhcpBound); /* each attached netif starts its client; OnDhcpBound fires when bound */
     
     UdpBind(7, UdpEchoHandler);
 
@@ -334,6 +262,13 @@ int main()
 
         PortWaitResult call;
         while (CtlNextCall(&call)) {
+            if (call.xlen == sizeof(CtlAttach) &&
+                *(const uint8_t *)GetMessageBox() == CTL_OP_ATTACH) {
+                CtlAttach a;
+                memcpy(&a, GetMessageBox(), sizeof(a));
+                ApplyAttach(&a);
+                continue;
+            }
             if (!SessionHandle(&call))
                 HandleNetdCall(&call);
         }

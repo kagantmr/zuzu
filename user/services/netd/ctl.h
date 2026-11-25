@@ -7,6 +7,8 @@
 #ifndef NETD_CTL_H
 #define NETD_CTL_H
 
+#include "common/netif.h"
+#include "common/netmq.h"
 #include <stdbool.h>
 #include <types.h>
 #include <zuzu/err.h>
@@ -16,8 +18,26 @@
 /** @brief Mask of CTL_MBOX_BIT. */
 #define CTL_MBOX_MASK (1u << CTL_MBOX_BIT)
 
+/** @brief Internal opcode: the ctl thread finished a driver handshake. Refused from apps. */
+#define CTL_OP_ATTACH 0xF0u
+
+/** @brief Body of a CTL_OP_ATTACH message: a driver's rings, mapped by the ctl thread. */
+typedef struct {
+    uint8_t op;                /**< CTL_OP_ATTACH. */
+    uint8_t slot;              /**< netifs[] index to attach. */
+    uint8_t reattach;          /**< Nonzero if the slot had a driver before (driver restart). */
+    uint8_t _pad;              /**< Keeps the fields below aligned. */
+    MacAddr mac;               /**< Hardware address the driver reported. */
+    char name[NETIF_NAME_MAX]; /**< Name the ctl thread gave the interface. */
+    NicRing *tx_ring;          /**< Mapped tx ring. */
+    NicRing *rx_ring;          /**< Mapped rx ring. */
+    Handle doorbell;           /**< Driver's event handle. */
+} CtlAttach;
+
+_Static_assert(sizeof(CtlAttach) <= NETMQ_BODY_MAX, "CtlAttach must fit a NetdMsg body");
+
 /**
- * @brief Starts the ctl thread. Call after the startup driver handshake.
+ * @brief Starts the ctl thread, which also runs every driver handshake.
  * @return ZUZU_OK, or the error that kept the thread from starting.
  */
 Err CtlStart(void);

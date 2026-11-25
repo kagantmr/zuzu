@@ -129,6 +129,7 @@ static Err NetdHandshakeOn(Handle netd_port)
     MsgPutU32(&w, mac_lo);
     MsgPutU32(&w, mac_hi);
     MsgPutU64(&w, driver_key);
+    MsgPutByte(&w, NETD_IFTYPE_ETH);
     Err rc = NetdGrant(netd_port, &w, g_genet.event, PERM_WAIT | PERM_SEND, NULL);
     if (rc != ZUZU_OK)
         return rc;

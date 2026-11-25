@@ -34,6 +34,7 @@ typedef struct {
     Ipv4Addr netmask;          /**< Subnet mask of ip. */
     Ipv4Addr gateway;          /**< Default gateway learned on this interface. */
     Ipv4Addr dns;              /**< Resolver learned on this interface. */
+    bool link_up;              /**< Link state last seen in drv.stats. */
     NetifDriver drv;           /**< Driver link; doorbell is -1 while no driver is attached. */
 } NetInterface;
 
@@ -45,6 +46,9 @@ void NetifInit(void);
 
 /** @brief The only interface until routing picks one per packet. */
 #define netif (netifs[0])
+
+/** @brief Whether a driver has attached to @p n. */
+static inline bool NetifAttached(const NetInterface *n) { return n->drv.rx_ring != NULL; }
 
 /** @brief Directed broadcast address of @p n's subnet. */
 static inline Ipv4Addr NetifBroadcast(const NetInterface *n) { return n->ip | ~n->netmask; }

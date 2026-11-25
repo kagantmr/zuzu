@@ -309,6 +309,8 @@ static Err NetdHandshake(void)
     MsgPutByte(&w, NETD_DRVHANDSHAKE_INIT);
     MsgPutU32(&w, mac_lo);
     MsgPutU32(&w, mac_hi);
+    MsgPutU64(&w, 0);
+    MsgPutByte(&w, NETD_IFTYPE_ETH);
     Err rc = NetdGrant(netd_port, &w, g_doorbell_ev, PERM_WAIT | PERM_SEND, NULL);
     if (rc != ZUZU_OK)
         return rc;

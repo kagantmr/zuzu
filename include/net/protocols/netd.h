@@ -14,11 +14,19 @@ extern "C" {
 #include <net/protocols/nic.h>
 #include <stdint.h>
 
+/** @brief Kind of interface a driver provides; netd names interfaces after it. */
+typedef enum {
+    NETD_IFTYPE_ETH = 0, /**< Wired Ethernet: eth0, eth1, ... */
+    NETD_IFTYPE_WLAN,    /**< Wi-Fi: wlan0, wlan1, ... */
+    NETD_IFTYPE_PWIRE,   /**< Pseudo wire between two netd instances: pwire0, ... */
+    NETD_IFTYPE_COUNT    /**< Number of types. */
+} NetdIfType;
+
 /** @brief One-byte opcodes on netd's service port. */
 typedef enum {
     NETD_GET_NETIF = 1,       /**< Read the interface configuration (NetdNetif). */
-    NETD_DRVHANDSHAKE_INIT,   /**< Driver begins: grants its doorbell and sends its MAC and a u64
-                                 driver key (0 = allocate fresh). */
+    NETD_DRVHANDSHAKE_INIT,   /**< Driver begins: grants its doorbell and sends its MAC, a u64
+                                 driver key (0 = derive it from the MAC) and a NetdIfType byte. */
     NETD_DRVHANDSHAKE_STAGE2, /**< Grants the tx ring's memory. */
     NETD_DRVHANDSHAKE_STAGE3, /**< Grants the rx ring's memory; the reply holds the name and grants
                                  netd's event. */
