@@ -22,6 +22,21 @@ static struct {
     void (*on_result)(bool conflict);
 } acd;
 
+/* Builds an Ethernet frame around len bytes of data in nif's tx ring and sends it. */
+static int ArpTxBytes(Netif *nif, uint8_t *dst_mac, uint16_t ethertype, const void *data,
+                      uint16_t len)
+{
+    TxFrame f;
+    int rc = TxFrameInit(&f, nif, sizeof(EthHdr));
+    if (rc != ZUZU_OK)
+        return rc;
+    void *p = TxFrameAppend(&f, len);
+    if (!p)
+        return ERR_OVERFLOW; /* slot abandoned (uncommitted) */
+    memcpy(p, data, len);
+    return EthSendFrame(&f, dst_mac, ethertype);
+}
+
 __attribute__((cold)) void ArpInit()
 {
     memset(arp_table, 0, sizeof(arp_table)); /* every slot ARP_FREE */
@@ -42,7 +57,7 @@ static __attribute__((cold)) void ArpAcdProbe(Ipv4Addr ip)
     memcpy(pkt.sha, netif.mac, 6); /* our MAC; spa stays 0.0.0.0 */
     memcpy(pkt.tpa, &ip, 4);
     MacAddr dst_mac = BROADCAST_MAC;
-    EthTx(dst_mac, ETH_TYPE_ARP, (uint8_t *)&pkt, sizeof(ArpPacket));
+    ArpTxBytes(&netif, dst_mac, ETH_TYPE_ARP, &pkt, sizeof(ArpPacket));
 }
 
 void ArpAcdStart(Ipv4Addr ip, void (*on_result)(bool conflict))
@@ -138,7 +153,7 @@ void ArpLearn(Ipv4Addr ip, const uint8_t *mac_addr)
         /* flush everything that was waiting on this address */
         LOG_DEBUG(LOG_TAG, "learned %u.%u.%u.%u: flushing %u queued", IP4(ip), e->qlen);
         for (uint8_t i = 0; i < e->qlen; i++) {
-            EthTx(e->mac, e->queue[i].ethertype, e->queue[i].data, e->queue[i].len);
+            ArpTxBytes(&netif, e->mac, e->queue[i].ethertype, e->queue[i].data, e->queue[i].len);
             free(e->queue[i].data);
         }
         e->qlen = 0;
@@ -267,7 +282,7 @@ int ArpRx(uint8_t *data, uint16_t len)
             memcpy(pkt_out.spa, &ip, 4);       // our IP
             memcpy(pkt_out.tha, pkt->sha, 6);  // their MAC
             memcpy(pkt_out.tpa, pkt->spa, 4);  // their IP
-            EthTx(pkt->sha, ETH_TYPE_ARP, (uint8_t *)&pkt_out, sizeof(ArpPacket));
+            ArpTxBytes(&netif, pkt->sha, ETH_TYPE_ARP, &pkt_out, sizeof(ArpPacket));
         }
         break;
     }
@@ -294,6 +309,5 @@ __attribute__((cold)) int ArpRequest(Ipv4Addr ip)
     // broadcast frame, no need to set it
     memcpy(pkt.tpa, &ip, 4); // their IP
     MacAddr dst_mac = BROADCAST_MAC;
-    EthTx(dst_mac, ETH_TYPE_ARP, (uint8_t *)&pkt, sizeof(ArpPacket));
-    return ZUZU_OK;
+    return ArpTxBytes(&netif, dst_mac, ETH_TYPE_ARP, &pkt, sizeof(ArpPacket));
 }

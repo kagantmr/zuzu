@@ -18,7 +18,6 @@ typedef struct __attribute__((packed)) {
 } EthHdr;
 
 int EthRx(uint8_t *data, uint16_t len);
-int EthTx(MacAddr dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t len);
 
 /* Zero-copy send: prepend the Ethernet header onto an already-built frame and
    publish its tx-ring slot. The builder's headroom must leave exactly enough

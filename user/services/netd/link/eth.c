@@ -36,29 +36,6 @@ int EthRx(uint8_t *data, uint16_t len)
     return ZUZU_OK;
 }
 
-int EthTx(MacAddr dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t len)
-{
-    size_t total_len = sizeof(EthHdr) + len;
-    if (total_len > NIC_FRAME_SIZE)
-        return ERR_OVERFLOW;
-
-    /* Build the frame directly in a tx-ring slot */
-    NicFrame *slot = PacketRingReserve(netif.drv.tx_ring);
-    if (!slot)
-        return ERR_BUFFULL;
-
-    EthHdr *hdr = (EthHdr *)slot->data;
-    memcpy(hdr->dst_mac, dst_mac, 6);
-    memcpy(hdr->src_mac, netif.mac, 6);
-    hdr->ethertype = htons(ethertype);
-    memcpy(slot->data + sizeof(EthHdr), payload, len);
-    slot->len = (uint32_t)total_len;
-    PacketRingCommit(netif.drv.tx_ring);
-
-    /* Async doorbell */
-    return Signal(netif.drv.doorbell, NIC_DOORBELL_TX, false);
-}
-
 int EthSendFrame(TxFrame *f, MacAddr dst_mac, uint16_t ethertype)
 {
     EthHdr *hdr = (EthHdr *)TxFramePrepend(f, sizeof(EthHdr));
