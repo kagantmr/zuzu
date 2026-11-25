@@ -27,7 +27,7 @@
  * @return wm's status or an IPC error.
  */
 static Err WmCall(WinConn *conn, const void *req, uint32_t len, Handle grant, void *reply,
-                uint32_t reply_len, Handle *reply_grant)
+                  uint32_t reply_len, Handle *reply_grant)
 {
     MsgWrite(req, len);
     uint32_t got = 0;
@@ -91,8 +91,8 @@ Err WinConnect(WinConn *conn, uint32_t wait_ms)
 
 Err WinCreate(WinConn *conn, const WinSpec *spec, Handle event, uint32_t shift, Win *win)
 {
-    *win = (Win){.conn = conn, .width = spec->width, .height = spec->height, .mem = -1,
-                 .ring_mem = -1};
+    *win = (Win){
+        .conn = conn, .width = spec->width, .height = spec->height, .mem = -1, .ring_mem = -1};
     size_t bytes = (size_t)spec->width * spec->height * sizeof(uint16_t);
     win->mem = CreateMem((bytes + PAGE_BYTES - 1U) / PAGE_BYTES, 0);
     if (win->mem < 0)
@@ -201,3 +201,12 @@ Err WinList(WinConn *conn, WmList *out)
 Err WinFocusId(WinConn *conn, uint32_t id) { return Simple(conn, WM_CMD_FOCUS, id, 0, -1); }
 
 Err WinMinimizeId(WinConn *conn, uint32_t id) { return Simple(conn, WM_CMD_MINIMIZE, id, 0, -1); }
+
+Err WinBootStatus(WinConn *conn, const char *text)
+{
+    WmCreate req = {.cmd = WM_CMD_BOOT_STATUS, .token = conn->token};
+    strncpy(req.title, text, WM_TITLE_MAX - 1);
+    return WmCall(conn, &req, sizeof(req), -1, NULL, 0, NULL);
+}
+
+Err WinBootDone(WinConn *conn) { return Simple(conn, WM_CMD_BOOT_DONE, 0, 0, -1); }

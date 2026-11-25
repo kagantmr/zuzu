@@ -386,6 +386,7 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
 
     TtyConnectReply rep = {
         .status = ZUZU_OK, .bit = SESSION_BIT(slot), .index = SESSION_INDEX(g_gen[slot], slot)};
+    memcpy(rep.alias, g_endpoints[ep].alias, TTY_NAME_MAX);
     memcpy(GetMessageBox(), &rep, sizeof(rep));
     Err rc = Reply(sizeof(rep), (Handle)bell.r1);
     HandleClose((Handle)bell.r1);
@@ -749,15 +750,34 @@ static void InterruptOthers(const Endpoint *ep, const Session *fg)
 static bool ProcessInbound(Session *f, const Endpoint *ep, uint8_t c)
 {
     bool ok = ProcessInboundOne(f, ep, c);
-    if (ok && c == 0x03)
+    if (ok && c == 0x03 && (f->mode & TTY_ISIG))
         InterruptOthers(ep, f);
     return ok;
 }
 
+/* With nobody reading, typed bytes wait for the next reader, except that a ^C
+ * still interrupts every session on the endpoint and takes the bytes before it. */
+static void RouteUnread(Session *p, const Endpoint *ep)
+{
+    uint32_t avail = UpAvail(p);
+    for (uint32_t i = 0; i < avail; i++) {
+        if (p->shm->up_data[(p->up_tail + i) & (TTY_RING_DATA_SIZE - 1)] != 0x03)
+            continue;
+        for (uint32_t k = 0; k <= i; k++)
+            UpDrop(p);
+        InterruptOthers(ep, NULL);
+        if (HasOutput(ep) && OutFree(ep) >= 4)
+            OutPushStr(ep, "^C\r\n");
+        return;
+    }
+}
+
 static void RouteInbound(Session *p, Session *f, const Endpoint *ep)
 {
-    if (!f)
+    if (!f) {
+        RouteUnread(p, ep);
         return;
+    }
     while (UpAvail(p) > 0) {
         if (!ProcessInbound(f, ep, UpPeek(p)))
             break;

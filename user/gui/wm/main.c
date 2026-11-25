@@ -4,6 +4,7 @@
 #include <string.h>
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
+#include <zuzu/uptime.h>
 #include <zuzu/zuzu.h>
 
 #define LOG_TAG "wm"
@@ -11,6 +12,7 @@
 
 #define BIT_PORT 8
 #define REAP_MS 100
+#define SPLASH_FRAME_MS 33
 #define DISPLAY_WAIT_TRIES 500
 #define DISPLAY_WAIT_MS 10
 #define INPUT_BATCH 16
@@ -111,6 +113,8 @@ static void DrainInput(void)
     int32_t y = -1;
     while ((n = InputRingRead(g_ring, ev, INPUT_BATCH)) > 0) {
         for (uint32_t i = 0; i < n; i++) {
+            if (g_booting)
+                continue;
             switch (ev[i].type) {
             case INPUT_EV_ABS:
                 if (ev[i].code == INPUT_ABS_X)
@@ -135,7 +139,8 @@ static void DrainInput(void)
             }
         }
     }
-    InputSync();
+    if (!g_booting)
+        InputSync();
 }
 
 static void HandleVt(uint32_t bits)
@@ -181,10 +186,15 @@ int main(void)
         LOG_ERROR(LOG_TAG, "cannot serve /svc/wm: %s", StrToError(rc));
         return rc;
     }
+    SplashStart(UptimeMs());
+    if (!g_active)
+        FbCall(FB_CMD_SWITCH, g_info.vt, -1, NULL, 0, NULL);
     g_need_flip = g_active;
 
     for (;;) {
-        EventWaitResult w = WaitOnEvent(g_event, REAP_MS, WAKE_EVENTS, false);
+        Duration wait = g_booting ? SPLASH_FRAME_MS : REAP_MS;
+        EventWaitResult w = WaitOnEvent(g_event, wait, WAKE_EVENTS, false);
+        SplashTick(UptimeMs());
         uint32_t bits = w.status == ZUZU_OK ? w.bits : 0;
         if (bits & (FB_EVT_ACTIVATE | FB_EVT_DEACTIVATE))
             HandleVt(bits);

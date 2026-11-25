@@ -93,6 +93,8 @@ int StdioOpenTty(void)
         return -1;
     }
     TtyConnPipes(&g_conn, &g_tty[0], &g_tty[1], &g_tty[2]);
+    if (!g_alias[0])
+        strcpy(g_alias, g_conn.alias);
     g_state = STDIO_READY;
     return 0;
 }
@@ -105,6 +107,8 @@ void StdioSetTtyAlias(const char *alias)
         return;
     strcpy(g_alias, alias);
 }
+
+const char *StdioTtyAlias(void) { return g_alias; }
 
 int StdioRouteTty(const char *alias)
 {

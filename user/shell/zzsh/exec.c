@@ -10,15 +10,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dev/tty.h>
 #include <util/imgcache.h>
 #include <util/path.h>
 #include <util/pipe.h>
 #include <util/spawn.h>
 #include <zuzu/err.h>
+#include <zuzu/service.h>
+#include <zuzu/uptime.h>
 #include <zuzu/zuzu.h>
 
 int g_status;
 bool g_exit;
+bool g_interactive;
 char g_cwd[PATH_MAX_LEN] = "/";
 
 static FsdConn g_fsd;       /**< Connection to the file service. */
@@ -43,6 +47,74 @@ static Capture *g_capture; /**< Where ShPrintf() puts output while a pipeline st
 #define STATUS_CANNOT_RUN 126
 /** @brief Exit status of a task that faulted. */
 #define STATUS_FAULT 139
+/** @brief Exit status of a stage ended by ^C. */
+#define STATUS_INTERRUPTED 130
+/** @brief How long a program has to end itself after ^C before the shell ends it. */
+#define INTR_GRACE_MS 200
+/** @brief Event bit the ^C watch session rings. */
+#define INTR_BIT 30
+
+/** @brief A terminal session that never reads, so ^C reaches the shell while a pipeline runs. */
+typedef struct {
+    Handle port;    /**< ttysvc, or -1 when not watching. */
+    TtyConn conn;   /**< The session. */
+    uint32_t seen;  /**< Last ^C count acted on. */
+} IntrWatch;
+
+/**
+ * @brief Attaches a non-reading ISIG session to the shell's terminal.
+ *
+ * @param[out] w  The watch; its port stays -1 if it could not be set up.
+ * @param[in]  ev Event to ring on ^C, at INTR_BIT.
+ */
+static void IntrWatchOpen(IntrWatch *w, Handle ev)
+{
+    w->port = -1;
+    if (!g_interactive || ev < 0)
+        return;
+    Handle port = LookupService("/svc/tty");
+    if (port < 0)
+        return;
+    const char *alias = VarGet("TTY");
+    if (TtyClientConnect(port, TTY_ATTACH, alias ? alias : "", ev, INTR_BIT, &w->conn) != ZUZU_OK) {
+        HandleClose(port);
+        return;
+    }
+    TtyClientSetMode(port, &w->conn, TTY_ISIG);
+    w->seen = w->conn.shm->down_ctl.intr_seq;
+    w->port = port;
+}
+
+/**
+ * @brief Tells whether ^C was typed since the last call.
+ *
+ * @param[in,out] w The watch.
+ * @return True once per burst of ^C.
+ */
+static bool IntrWatchFired(IntrWatch *w)
+{
+    if (w->port < 0)
+        return false;
+    uint32_t seq = w->conn.shm->down_ctl.intr_seq;
+    if (seq == w->seen)
+        return false;
+    w->seen = seq;
+    return true;
+}
+
+/**
+ * @brief Leaves the watch session.
+ *
+ * @param[in,out] w The watch.
+ */
+static void IntrWatchClose(IntrWatch *w)
+{
+    if (w->port < 0)
+        return;
+    TtyClientClose(w->port, &w->conn);
+    HandleClose(w->port);
+    w->port = -1;
+}
 /** @brief Longest environment handed to a child. */
 #define ENV_MAX 4096
 /** @brief Longest argument list handed to a child. */
@@ -1015,6 +1087,10 @@ static int RunPrograms(const ShPipeline *pl)
         }
         live |= 1u << i;
     }
+    IntrWatch intr;
+    IntrWatchOpen(&intr, live ? ev : -1);
+    bool interrupted = false;
+    uint64_t kill_at = 0;
 
     while (live || pu.in_active || pu.out_active || PumpBusy(&pu)) {
         bool did = PumpStep(&pu);
@@ -1024,17 +1100,35 @@ static int RunPrograms(const ShPipeline *pl)
         Duration wait = !pumping ? TIMEOUT_INFINITE : (did ? TIMEOUT_POLL : PUMP_POLL_MS);
         if (!live && pumping && !did)
             wait = PUMP_POLL_MS;
+        if (kill_at && (wait == TIMEOUT_INFINITE || wait > INTR_GRACE_MS))
+            wait = INTR_GRACE_MS;
         EventWaitResult r = WaitOnEvent(ev, wait, 0, false);
+        if (kill_at && UptimeMs() >= kill_at) {
+            kill_at = 0;
+            for (int i = 0; i < started; i++) {
+                if (live & (1u << i))
+                    HandleDestroy((Handle)pid[i]);
+            }
+        }
         if (r.status != ZUZU_OK) {
             if (r.status == ERR_TIMEOUT)
                 continue;
             break;
+        }
+        if ((r.bits & (1u << INTR_BIT)) && IntrWatchFired(&intr)) {
+            interrupted = true;
+            if (!kill_at)
+                kill_at = UptimeMs() + INTR_GRACE_MS;
+            else
+                kill_at = UptimeMs();
         }
         for (int i = 0; i < started; i++) {
             if (!(live & (1u << i)) || !(r.bits & (1u << i)))
                 continue;
             live &= ~(1u << i);
             status[i] = StageStatus(task[i]);
+            if (interrupted && status[i] != STATUS_FAULT)
+                status[i] = STATUS_INTERRUPTED;
             /* stage i's output pipe loses its writer, and its input pipe its reader */
             if (i < n - 1)
                 PipeMarkClosed(&pw[i], PIPE_WRITER);
@@ -1046,6 +1140,7 @@ static int RunPrograms(const ShPipeline *pl)
                 PipeMarkClosed(&pr[in_pipe], PIPE_READER);
         }
     }
+    IntrWatchClose(&intr);
     for (int i = 0; i < started; i++) {
         if (is_builtin[i])
             continue;

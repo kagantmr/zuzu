@@ -1,9 +1,12 @@
 #include <net/protocols/netd.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
+
+#define WAIT_STEP_MS 100U
 
 /** @brief Fetch the interface description from netd into @p nif. */
 static Err GetNetif(Handle netd, NetdNetif *nif)
@@ -70,7 +73,8 @@ static Err SetFilter(Handle netd, const NetdNetif *nif, int argc, char **argv)
                                                       : 0;
         bool on = argc == 3 && !strcmp(argv[2], "on");
         if (!bit || argc != 3 || (!on && strcmp(argv[2], "off"))) {
-            printf("usage: ifconfig [promisc|allmulti on|off] [mcast [mac ...]]\n");
+            printf("usage: ifconfig [promisc|allmulti on|off] [mcast [mac ...]]"
+                   " | wait <seconds>\n");
             return ERR_BADARG;
         }
         req.flags = on ? (req.flags | bit) : (req.flags & ~bit);
@@ -84,6 +88,21 @@ static Err SetFilter(Handle netd, const NetdNetif *nif, int argc, char **argv)
     return rc;
 }
 
+static int WaitForAddress(Handle netd, const char *secs)
+{
+    uint32_t left_ms = (uint32_t)strtoul(secs, NULL, 10) * 1000U;
+    for (;;) {
+        NetdNetif nif;
+        static const uint8_t k_zero[sizeof(Ipv4Addr)];
+        if (GetNetif(netd, &nif) == ZUZU_OK && memcmp(&nif.ip, k_zero, sizeof(k_zero)) != 0)
+            return 0;
+        if (left_ms < WAIT_STEP_MS)
+            return 1;
+        Sleep(WAIT_STEP_MS);
+        left_ms -= WAIT_STEP_MS;
+    }
+}
+
 int main(int argc, char **argv)
 {
     Handle netd = LookupService("/svc/netd");
@@ -91,6 +110,9 @@ int main(int argc, char **argv)
         printf("ifconfig: can't find /svc/netd (%d)\n", netd);
         return ERR_SYSDOWN;
     }
+
+    if (argc == 3 && !strcmp(argv[1], "wait"))
+        return WaitForAddress(netd, argv[2]);
 
     NetdNetif nif;
     Err rc = GetNetif(netd, &nif);

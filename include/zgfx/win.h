@@ -31,24 +31,24 @@ typedef struct {
 
 /** @brief Where and how WinCreate() opens a window. */
 typedef struct {
-    uint32_t width;     /**< Surface width in pixels. */
-    uint32_t height;    /**< Surface height in pixels. */
-    uint32_t layer;     /**< A WM_LAYER_* value. */
-    int32_t x;          /**< Desktop and panel layers: left edge on screen. */
-    int32_t y;          /**< Desktop and panel layers: top edge on screen. */
-    const char *title;  /**< Window title. */
+    uint32_t width;    /**< Surface width in pixels. */
+    uint32_t height;   /**< Surface height in pixels. */
+    uint32_t layer;    /**< A WM_LAYER_* value. */
+    int32_t x;         /**< Desktop and panel layers: left edge on screen. */
+    int32_t y;         /**< Desktop and panel layers: top edge on screen. */
+    const char *title; /**< Window title. */
 } WinSpec;
 
 /** @brief An open window. */
 typedef struct {
-    WinConn *conn;    /**< The connection it belongs to. */
-    uint32_t id;      /**< wm's id for the window. */
-    uint32_t width;   /**< Surface width in pixels. */
-    uint32_t height;  /**< Surface height in pixels. */
-    uint16_t *px;     /**< The surface: width * height RGB565 pixels. */
-    Handle mem;       /**< Memory object behind @c px. */
-    InputRing *ring;  /**< Input for this window, or NULL before WinCreate() succeeds. */
-    Handle ring_mem;  /**< Memory object behind @c ring. */
+    WinConn *conn;   /**< The connection it belongs to. */
+    uint32_t id;     /**< wm's id for the window. */
+    uint32_t width;  /**< Surface width in pixels. */
+    uint32_t height; /**< Surface height in pixels. */
+    uint16_t *px;    /**< The surface: width * height RGB565 pixels. */
+    Handle mem;      /**< Memory object behind @c px. */
+    InputRing *ring; /**< Input for this window, or NULL before WinCreate() succeeds. */
+    Handle ring_mem; /**< Memory object behind @c ring. */
 } Win;
 
 /**
@@ -136,6 +136,23 @@ Err WinFocusId(WinConn *conn, uint32_t id);
  * @return ZUZU_OK or an error.
  */
 Err WinMinimizeId(WinConn *conn, uint32_t id);
+
+/**
+ * @brief Shows a line of text under the boot splash.
+ *
+ * @param[in] conn Connection from WinConnect().
+ * @param[in] text The line; longer than WM_TITLE_MAX - 1 is cut.
+ * @return ZUZU_OK or an error.
+ */
+Err WinBootStatus(WinConn *conn, const char *text);
+
+/**
+ * @brief Ends the boot splash and shows the desktop.
+ *
+ * @param[in] conn Connection from WinConnect().
+ * @return ZUZU_OK or an error.
+ */
+Err WinBootDone(WinConn *conn);
 
 #ifdef __cplusplus
 }

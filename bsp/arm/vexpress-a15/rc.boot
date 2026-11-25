@@ -1,0 +1,12 @@
+# Boot script: rootsvc runs it with zzsh while wm shows the splash.
+# Each step reports on the splash; "splash done" brings up the desktop.
+
+splash Starting services
+logger -t boot "rc.boot started"
+
+splash Connecting to the network
+ifconfig wait 8 && logger -t boot "network is up" || logger -t boot "no network yet, carrying on"
+
+splash Preparing your desktop
+splash done
+logger -t boot "desktop up"

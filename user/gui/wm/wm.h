@@ -60,6 +60,11 @@ bool WinVisible(const Window *w);
 
 void ComposeInit(uint16_t *fb, uint32_t stride_px);
 void Damage(Rect r);
+void Blend(Rect clip, int32_t x, int32_t y, const uint8_t *mask, int32_t w, int32_t h,
+           uint32_t rgb, uint32_t opacity);
+void Fill(Rect clip, Rect r, uint16_t color);
+void Text(Rect clip, int32_t x, int32_t y, const char *s, int32_t max_w, uint16_t color);
+uint16_t Lerp565(uint32_t a, uint32_t b, int32_t num, int32_t den);
 void DamageAll(void);
 bool ComposeDirty(void);
 void ComposeFlush(bool to_screen);
@@ -73,6 +78,14 @@ void WinFocusTopmost(void);
 void WinMinimize(int i);
 void WinDestroy(int i);
 int WinAt(int32_t x, int32_t y);
+
+extern bool g_booting;
+void SplashStart(uint64_t now);
+bool SplashTick(uint64_t now);
+void SplashPaint(Rect clip);
+void SplashStatus(const char *text);
+void SplashFinish(void);
+void SplashEnd(void);
 
 Err ServerInit(Handle event, uint32_t bit);
 void ServerDrain(void);

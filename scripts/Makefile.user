@@ -93,12 +93,15 @@ SD_MANIFEST   := $(BOARD_DIR)/sd.manifest
 # Optional: services rootsvc spawns from the SD card after fsd is up. Staged
 # as /etc/services.manifest, programs into /sbin.
 SVC_MANIFEST  := $(wildcard $(BOARD_DIR)/services.manifest)
+# Optional: a zzsh script the boot manifest runs in the background, staged as /etc/rc.boot.
+BOOT_RC       := $(wildcard $(BOARD_DIR)/rc.boot)
 
-# First |-field of each non-comment, non-blank line, basename only:
-# "bin/zzsh|tty:late|/env/zzsh" -> zzsh
+# Program of each non-comment, non-blank line (the first word of its first |-field),
+# basename only: "bin/zzsh /etc/rc.boot|none:late" -> zzsh
 manifest-progs = $(sort $(notdir $(shell awk -F'|' \
   '/^[[:space:]]*#/ || /^[[:space:]]*$$/ { next } \
-   { gsub(/[[:space:]]/, "", $$1); if ($$1 != "") print $$1 }' $(1) 2>/dev/null)))
+   { n = split($$1, w, /[[:space:]]+/); p = (w[1] == "" && n > 1) ? w[2] : w[1]; \
+     if (p != "") print p }' $(1) 2>/dev/null)))
 
 BOOT_PROGS := $(call manifest-progs,$(BOOT_MANIFEST))
 SD_PROGS   := $(call manifest-progs,$(SD_MANIFEST))

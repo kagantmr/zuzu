@@ -8,10 +8,10 @@
 /**
  * _start
  *
- * Entered from the kernel with x0 = argc and x1 = argv. Runs the constructors, calls
- * main(argc, argv), runs the destructors in reverse, and quits with main's return value
- * (svc #0 is SVC_QUIT). With newlib, __libc_init_array and exit() do the constructor and
- * destructor work instead. Never returns.
+ * Entered from the kernel with x0 = argc and x1 = argv. Records the environment, runs the
+ * constructors, calls main(argc, argv), runs the destructors in reverse, and quits with main's
+ * return value (svc #0 is SVC_QUIT). With newlib, __libc_init_array and exit() do the
+ * constructor and destructor work instead. Never returns.
  */
 .global _start
 .type _start, %function
@@ -46,6 +46,9 @@ _fini:
 .size _fini, . - _fini
 
 #else
+    mov x0, x19
+    mov x1, x20
+    bl  __zcrt_env_init
     adrp x21, __init_array_start
     add  x21, x21, :lo12:__init_array_start
     adrp x22, __init_array_end

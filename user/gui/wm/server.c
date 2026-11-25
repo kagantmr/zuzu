@@ -363,14 +363,26 @@ static void ServeList(void)
     Reply(sizeof(list), -1);
 }
 
-static void ServeWindowCmd(int c, uint32_t cmd, const uint8_t *msg, uint32_t xlen,
-                           Handle *granted)
+static void ServeWindowCmd(int c, uint32_t cmd, const uint8_t *msg, uint32_t xlen, Handle *granted)
 {
     WmRequest req = {0};
     memcpy(&req, msg, xlen < sizeof(req) ? xlen : sizeof(req));
 
     if (cmd == WM_CMD_LIST) {
         ServeList();
+        return;
+    }
+    if (cmd == WM_CMD_BOOT_STATUS) {
+        WmCreate t = {0};
+        memcpy(&t, msg, xlen < sizeof(t) ? xlen : sizeof(t));
+        t.title[WM_TITLE_MAX - 1] = '\0';
+        SplashStatus(t.title);
+        ReplyStatus(ZUZU_OK);
+        return;
+    }
+    if (cmd == WM_CMD_BOOT_DONE) {
+        SplashFinish();
+        ReplyStatus(ZUZU_OK);
         return;
     }
     if (cmd == WM_CMD_FOCUS || cmd == WM_CMD_MINIMIZE) {

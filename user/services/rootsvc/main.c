@@ -33,6 +33,13 @@ typedef struct {
     char path[48];
 } Kitten;
 
+/** Arguments a manifest line gives after the program's path; none when @c count is 0. */
+typedef struct {
+    char buf[MANIFEST_PATH_MAX];
+    size_t len;
+    uint32_t count;
+} KittenArgs;
+
 static Kitten g_kittens[MAX_KITTENS];
 static uint32_t g_kitten_count;
 static Handle g_monitor_ev;
@@ -60,11 +67,12 @@ static void MonitorKitten(Handle task, Handle space, const char *path)
 }
 
 static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path,
-                        const SpawnAttr *attr)
+                        const KittenArgs *args, const SpawnAttr *attr)
 {
     Spid pid;
     Handle task;
-    Err rc = SpawnProcessAttr(zxf_data, zxf_size, path, NULL, 0, 0, attr, &pid, &task);
+    Err rc = SpawnProcessAttr(zxf_data, zxf_size, path, args->buf, args->len, args->count, attr,
+                              &pid, &task);
     if (rc != ZUZU_OK) {
         UserspaceDebugLog("rootsvc: failed to spawn %s: %d", path, rc);
         return;
@@ -73,7 +81,7 @@ static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path,
     MonitorKitten(task, (Handle)pid, path);
 }
 
-static void SpawnKittenFromSd(const char *path, const SpawnAttr *attr)
+static void SpawnKittenFromSd(const char *path, const KittenArgs *args, const SpawnAttr *attr)
 {
     char sd_path[MANIFEST_PATH_MAX + 1];
     size_t n = strlen(path);
@@ -92,7 +100,7 @@ static void SpawnKittenFromSd(const char *path, const SpawnAttr *attr)
 
     Spid pid;
     Handle task;
-    rc = SpawnProcessObjAttr(obj, len, path, NULL, 0, 0, attr, &pid, &task);
+    rc = SpawnProcessObjAttr(obj, len, path, args->buf, args->len, args->count, attr, &pid, &task);
     HandleClose(obj);
     if (rc != ZUZU_OK) {
         UserspaceDebugLog("rootsvc: failed to spawn %s: %d", sd_path, rc);
@@ -280,6 +288,33 @@ static void AwaitServices(void)
     }
 }
 
+static void ParseArgs(const char *path, const char *rest, KittenArgs *args)
+{
+    const char *slash = strrchr(path, '/');
+    const char *name = slash ? slash + 1 : path;
+    const char *words[2] = {name, rest};
+    for (int w = 0; w < 2; w++) {
+        const char *p = words[w];
+        while (*p) {
+            while (*p == ' ')
+                p++;
+            if (!*p)
+                break;
+            const char *end = w == 0 ? p + strlen(p) : strchr(p, ' ');
+            if (!end)
+                end = p + strlen(p);
+            size_t n = (size_t)(end - p);
+            if (args->len + n + 1 > sizeof(args->buf))
+                return;
+            memcpy(args->buf + args->len, p, n);
+            args->buf[args->len + n] = '\0';
+            args->len += n + 1;
+            args->count++;
+            p = end;
+        }
+    }
+}
+
 static void SpawnPass(const char *manifest, size_t manifest_size, ImageSource source,
                       bool late_pass)
 {
@@ -310,6 +345,12 @@ static void SpawnPass(const char *manifest, size_t manifest_size, ImageSource so
         }
         memcpy(path, line, path_len);
         path[path_len] = '\0';
+        KittenArgs args = {.len = 0, .count = 0};
+        char *space = strchr(path, ' ');
+        if (space) {
+            *space = '\0';
+            ParseArgs(path, space + 1, &args);
+        }
 
         const char *role = pipe + 1;
         const char *field_end = memchr(role, '|', (size_t)(line_end - role));
@@ -340,7 +381,7 @@ static void SpawnPass(const char *manifest, size_t manifest_size, ImageSource so
                 line = next;
                 continue;
             }
-            SpawnKittenFromSd(path, &attr);
+            SpawnKittenFromSd(path, &args, &attr);
         } else {
             const void *zxf_data;
             size_t zxf_size;
@@ -349,7 +390,7 @@ static void SpawnPass(const char *manifest, size_t manifest_size, ImageSource so
                 line = next;
                 continue;
             }
-            SpawnKitten(zxf_data, zxf_size, path, &attr);
+            SpawnKitten(zxf_data, zxf_size, path, &args, &attr);
         }
 
         if (!late_pass && svc_path && svc_path < line_end && g_awaited_count < MAX_AWAITED) {

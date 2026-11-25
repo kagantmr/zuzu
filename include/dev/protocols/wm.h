@@ -44,6 +44,10 @@ extern "C" {
 #define WM_CMD_FOCUS 9u
 /** @brief Minimise a window. Request {cmd, token, id}. */
 #define WM_CMD_MINIMIZE 10u
+/** @brief Show a line under the boot splash. Request: WmCreate with only @c title used. */
+#define WM_CMD_BOOT_STATUS 11u
+/** @brief End the boot splash and show the desktop. Request {cmd, token}. */
+#define WM_CMD_BOOT_DONE 12u
 
 /** @brief Input waits in the window's InputRing. */
 #define WM_EVT_INPUT (1u << 0)

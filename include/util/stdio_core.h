@@ -87,6 +87,13 @@ int StdioRouteTty(const char *alias);
 void StdioSetTtyAlias(const char *alias);
 
 /**
+ * @brief The endpoint the terminal session attaches to; once connected, the one it is on.
+ *
+ * @return The alias, "" while the default has not been resolved.
+ */
+const char *StdioTtyAlias(void);
+
+/**
  * @brief Sets the terminal mode; it survives a reconnect.
  *
  * @param[in] flags TTY_MODE_* flags.

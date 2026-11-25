@@ -60,7 +60,7 @@ SD_STAGE_DIR   ?= $(O)/sdcard
 .PHONY: sdimg sdimg-stage sdimg-clean sdimg-recreate
 
 sdimg-stage: $(SD_PROGS:%=$(O)/user/%.zxf) $(SVC_PROGS:%=$(O)/user/%.zxf) $(SVC_MANIFEST) \
-             $(SD_LIB_ARCHIVES) $(USER_CRT0) $(ZCRT_ARCHIVE)
+             $(BOOT_RC) $(SD_LIB_ARCHIVES) $(USER_CRT0) $(ZCRT_ARCHIVE)
 	@rm -rf $(SD_STAGE_DIR)
 	@mkdir -p $(SD_STAGE_DIR)/bin $(SD_STAGE_DIR)/lib $(SD_STAGE_DIR)/include
 	@if [ -d "$(SD_ROOT_DIR)" ]; then \
@@ -80,6 +80,11 @@ sdimg-stage: $(SD_PROGS:%=$(O)/user/%.zxf) $(SVC_PROGS:%=$(O)/user/%.zxf) $(SVC_
 		mkdir -p $(SD_STAGE_DIR)/etc; \
 		cp $(SVC_MANIFEST) $(SD_STAGE_DIR)/etc/services.manifest; \
 		echo "  STAGE   etc/services.manifest"; \
+	fi
+	@if [ -n "$(BOOT_RC)" ]; then \
+		mkdir -p $(SD_STAGE_DIR)/etc; \
+		cp $(BOOT_RC) $(SD_STAGE_DIR)/etc/rc.boot; \
+		echo "  STAGE   etc/rc.boot"; \
 	fi
 	@for lib in $(SD_LIBS); do \
 		cp $(O)/user/lib/$$lib.a $(SD_STAGE_DIR)/lib/$$lib.a; \

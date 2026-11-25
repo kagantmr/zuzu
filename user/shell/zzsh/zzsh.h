@@ -118,6 +118,8 @@ extern int g_status;
 extern bool g_exit;
 /** @brief Working directory, absolute. */
 extern char g_cwd[];
+/** @brief Whether the shell reads commands from a terminal, so ^C ends what it runs. */
+extern bool g_interactive;
 
 /** @brief Connects to the file service if needed; false if it is not there. */
 bool ShEnsureFsd(void);

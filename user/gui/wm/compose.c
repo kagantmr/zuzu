@@ -4,6 +4,8 @@
 #include <string.h>
 #include <util/font12x16.h>
 
+#include "logo.h"
+
 #define MAX_DIRTY 32
 #define BUTTON_W 26
 #define BUTTON_H 20
@@ -19,6 +21,7 @@
 #define COL_CLOSE RGB565(0xf8, 0x51, 0x49)
 #define COL_WALL_TOP 0x1d3557U
 #define COL_WALL_BOTTOM 0x0b1320U
+#define WALL_LOGO_OPACITY 18U
 
 static const char *const k_cursor[CURSOR_H] = {
     "X           ", "XX          ", "X.X         ", "X..X        ", "X...X       ",
@@ -93,22 +96,66 @@ Rect WinMinButton(const Window *w)
 
 bool WinVisible(const Window *w) { return w->used && !w->minimized && w->px; }
 
-static uint16_t Lerp565(uint32_t a, uint32_t b, int32_t num, int32_t den)
+uint16_t Lerp565(uint32_t a, uint32_t b, int32_t num, int32_t den)
 {
-    uint32_t r = ((a >> 16) & 0xFFU) + (uint32_t)((int32_t)(((b >> 16) & 0xFFU) - ((a >> 16) & 0xFFU)) * num / den);
-    uint32_t g = ((a >> 8) & 0xFFU) + (uint32_t)((int32_t)(((b >> 8) & 0xFFU) - ((a >> 8) & 0xFFU)) * num / den);
+    uint32_t r = ((a >> 16) & 0xFFU) +
+                 (uint32_t)((int32_t)(((b >> 16) & 0xFFU) - ((a >> 16) & 0xFFU)) * num / den);
+    uint32_t g = ((a >> 8) & 0xFFU) +
+                 (uint32_t)((int32_t)(((b >> 8) & 0xFFU) - ((a >> 8) & 0xFFU)) * num / den);
     uint32_t bl = (a & 0xFFU) + (uint32_t)((int32_t)((b & 0xFFU) - (a & 0xFFU)) * num / den);
     return RGB565(r, g, bl);
+}
+
+static uint16_t Mix565(uint16_t dst, uint32_t rgb, uint32_t a)
+{
+    uint32_t dr = (dst >> 11) & 0x1FU;
+    uint32_t dg = (dst >> 5) & 0x3FU;
+    uint32_t db = dst & 0x1FU;
+    uint32_t sr = (rgb >> 19) & 0x1FU;
+    uint32_t sg = (rgb >> 10) & 0x3FU;
+    uint32_t sb = (rgb >> 3) & 0x1FU;
+    dr = (dr * (255U - a) + sr * a) / 255U;
+    dg = (dg * (255U - a) + sg * a) / 255U;
+    db = (db * (255U - a) + sb * a) / 255U;
+    return (uint16_t)((dr << 11) | (dg << 5) | db);
+}
+
+static void BlendInto(uint16_t *buf, Rect clip, int32_t x, int32_t y, const uint8_t *mask,
+                      int32_t w, int32_t h, uint32_t rgb, uint32_t opacity)
+{
+    Rect r = RectIntersect(clip, (Rect){x, y, w, h});
+    for (int32_t py = r.y; py < r.y + r.h; py++) {
+        const uint8_t *m = mask + ((py - y) * w) + (r.x - x);
+        uint16_t *row = buf + (py * g_screen_w) + r.x;
+        for (int32_t px = 0; px < r.w; px++) {
+            uint32_t a = (uint32_t)m[px] * opacity / 255U;
+            if (a)
+                row[px] = Mix565(row[px], rgb, a);
+        }
+    }
+}
+
+void Blend(Rect clip, int32_t x, int32_t y, const uint8_t *mask, int32_t w, int32_t h, uint32_t rgb,
+           uint32_t opacity)
+{
+    BlendInto(g_shadow, clip, x, y, mask, w, h, rgb, opacity);
 }
 
 void ComposeInit(uint16_t *fb, uint32_t stride_px)
 {
     g_fb = fb;
     g_stride = stride_px;
-    g_shadow = malloc((size_t)g_screen_w * (size_t)g_screen_h * sizeof(uint16_t));
-    g_wall = malloc((size_t)g_screen_h * sizeof(uint16_t));
-    for (int32_t y = 0; y < g_screen_h; y++)
-        g_wall[y] = Lerp565(COL_WALL_TOP, COL_WALL_BOTTOM, y, g_screen_h);
+    size_t pixels = (size_t)g_screen_w * (size_t)g_screen_h;
+    g_shadow = malloc(pixels * sizeof(uint16_t));
+    g_wall = malloc(pixels * sizeof(uint16_t));
+    for (int32_t y = 0; y < g_screen_h; y++) {
+        uint16_t c = Lerp565(COL_WALL_TOP, COL_WALL_BOTTOM, y, g_screen_h);
+        for (int32_t x = 0; x < g_screen_w; x++)
+            g_wall[(y * g_screen_w) + x] = c;
+    }
+    Rect screen = {0, 0, g_screen_w, g_screen_h};
+    BlendInto(g_wall, screen, (g_screen_w - LOGO_W) / 2, (g_screen_h - LOGO_H) / 2 - 22, k_logo,
+              LOGO_W, LOGO_H, 0xFFFFFFU, WALL_LOGO_OPACITY);
     g_cx = g_screen_w / 2;
     g_cy = g_screen_h / 2;
     DamageAll();
@@ -144,7 +191,7 @@ void DamageAll(void)
 
 bool ComposeDirty(void) { return g_ndirty > 0; }
 
-static void Fill(Rect clip, Rect r, uint16_t color)
+void Fill(Rect clip, Rect r, uint16_t color)
 {
     r = RectIntersect(r, clip);
     for (int32_t y = r.y; y < r.y + r.h; y++) {
@@ -154,7 +201,7 @@ static void Fill(Rect clip, Rect r, uint16_t color)
     }
 }
 
-static void Text(Rect clip, int32_t x, int32_t y, const char *s, int32_t max_w, uint16_t color)
+void Text(Rect clip, int32_t x, int32_t y, const char *s, int32_t max_w, uint16_t color)
 {
     for (; *s && max_w >= FONT_GLYPH_W; s++, x += FONT_GLYPH_W, max_w -= FONT_GLYPH_W) {
         uint32_t c = (uint8_t)*s;
@@ -223,6 +270,10 @@ static bool Covered(Rect r, int from)
 
 static void Paint(Rect clip)
 {
+    if (g_booting) {
+        SplashPaint(clip);
+        return;
+    }
     int first = 0;
     for (int s = g_nstack - 1; s >= 0; s--) {
         if (Covered(clip, s)) {
@@ -231,12 +282,9 @@ static void Paint(Rect clip)
         }
     }
     if (first == 0 && !Covered(clip, 0)) {
-        for (int32_t y = clip.y; y < clip.y + clip.h; y++) {
-            uint16_t *row = g_shadow + (y * g_screen_w) + clip.x;
-            uint16_t c = g_wall[y];
-            for (int32_t x = 0; x < clip.w; x++)
-                row[x] = c;
-        }
+        for (int32_t y = clip.y; y < clip.y + clip.h; y++)
+            memcpy(g_shadow + (y * g_screen_w) + clip.x, g_wall + (y * g_screen_w) + clip.x,
+                   (size_t)clip.w * sizeof(uint16_t));
     }
     for (int s = first; s < g_nstack; s++) {
         const Window *w = &g_win[g_stack[s]];
@@ -287,7 +335,7 @@ void ComposeFlush(bool to_screen)
         if (!RectEmpty(RectIntersect(g_dirty[i], CursorRect(g_cx, g_cy))))
             cursor = true;
     }
-    if (cursor)
+    if (cursor && !g_booting)
         DrawCursor();
 }
 
@@ -298,7 +346,7 @@ void CursorMove(int32_t x, int32_t y, bool to_screen)
     Rect old = RectIntersect(CursorRect(g_cx, g_cy), (Rect){0, 0, g_screen_w, g_screen_h});
     g_cx = x;
     g_cy = y;
-    if (!to_screen)
+    if (!to_screen || g_booting)
         return;
     if (!RectEmpty(old))
         Present(old);

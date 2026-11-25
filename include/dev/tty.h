@@ -201,6 +201,7 @@ typedef struct {
     Err status;     /**< ZUZU_OK, or an error code. */
     uint32_t bit;   /**< Bit to ring on ttysvc's doorbell. */
     uint32_t index; /**< Session index for later requests. */
+    char alias[TTY_NAME_MAX]; /**< Endpoint the session was attached to. */
 } TtyConnectReply;
 
 /**
@@ -228,6 +229,7 @@ typedef struct {
     Handle live;     /**< Port this client owns; ttysvc watches it to notice the client's death. */
     Handle my_event; /**< The caller's event, which ttysvc rings. */
     uint32_t my_bit; /**< Bit ttysvc rings on @c my_event. */
+    char alias[TTY_NAME_MAX]; /**< Endpoint the session is on. */
 } TtyConn;
 
 /**
@@ -330,6 +332,8 @@ static inline Err TtyClientConnectDir(Handle tty_port, uint32_t cmd, const char 
     c->doorbell = doorbell;
     c->bit = rep.bit;
     c->index = rep.index;
+    memcpy(c->alias, rep.alias, TTY_NAME_MAX);
+    c->alias[TTY_NAME_MAX - 1] = '\0';
 
     c->live = CreatePort();
     if (c->live >= 0) {

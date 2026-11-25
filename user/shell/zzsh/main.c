@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <util/env.h>
+#include <util/stdio_core.h>
 #include <util/path.h>
 
 /** @brief The startup file, relative to $HOME, run before the first prompt. */
@@ -70,6 +71,9 @@ int main(int argc, char **argv)
     stdio_set_raw(1);
     if (stdio_open_tty() != 0)
         return 1;
+    g_interactive = true;
+    if (!VarGet("TTY") && StdioTtyAlias()[0])
+        VarExport("TTY", StdioTtyAlias());
 
     printf("%s", ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET);
     RunRc();
