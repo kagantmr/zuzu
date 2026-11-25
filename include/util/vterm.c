@@ -1,8 +1,15 @@
+/**
+ * @file
+ * @brief Character-cell terminal emulator drawn through VTermOps callbacks.
+ */
+
 #include <string.h>
 #include <util/vterm.h>
 
+/** @brief Columns between tab stops. */
 #define TAB_WIDTH 8
 
+/** @brief RGB of the 16 standard ANSI colors. */
 static const uint8_t k_ansi16[16][3] = {
     {0, 0, 0},       {170, 0, 0},     {0, 170, 0},     {170, 85, 0},
     {0, 0, 170},     {170, 0, 170},   {0, 170, 170},   {170, 170, 170},
@@ -10,6 +17,7 @@ static const uint8_t k_ansi16[16][3] = {
     {85, 85, 255},   {255, 85, 255},  {85, 255, 255},  {255, 255, 255},
 };
 
+/** @brief Channel levels of the 6x6x6 color cube in the 256-color palette. */
 static const uint8_t k_cube[6] = {0, 95, 135, 175, 215, 255};
 
 uint16_t VTermRgb(uint8_t r, uint8_t g, uint8_t b)
@@ -29,13 +37,35 @@ uint16_t VTermPaletteColor(uint8_t index)
     return VTermRgb(level, level, level);
 }
 
+/**
+ * @brief Limits @p v to @p max.
+ *
+ * @param[in] v   Value.
+ * @param[in] max Upper bound.
+ * @return The smaller of the two.
+ */
 static uint32_t Clamp(uint32_t v, uint32_t max) { return v > max ? max : v; }
 
+/**
+ * @brief Reads CSI parameter @p i, treating missing and zero as @p def.
+ *
+ * @param[in] p   Parameters.
+ * @param[in] n   Parameter count.
+ * @param[in] i   Index.
+ * @param[in] def Default.
+ * @return The parameter or @p def.
+ */
 static uint32_t Param(const uint32_t *p, uint32_t n, uint32_t i, uint32_t def)
 {
     return (i < n && p[i] != 0) ? p[i] : def;
 }
 
+/**
+ * @brief Turns the foreground pen into a color.
+ *
+ * @param[in] t Terminal.
+ * @return RGB565 color.
+ */
 static uint16_t ResolveFg(const VTerm *t)
 {
     switch (t->pen_fg.kind) {
@@ -50,6 +80,12 @@ static uint16_t ResolveFg(const VTerm *t)
     return t->default_fg;
 }
 
+/**
+ * @brief Turns the background pen into a color.
+ *
+ * @param[in] t Terminal.
+ * @return RGB565 color.
+ */
 static uint16_t ResolveBg(const VTerm *t)
 {
     switch (t->pen_bg.kind) {
@@ -63,6 +99,13 @@ static uint16_t ResolveBg(const VTerm *t)
     return t->default_bg;
 }
 
+/**
+ * @brief Colors to draw a cell with, after bold and reverse.
+ *
+ * @param[in]  t  Terminal.
+ * @param[out] fg Foreground.
+ * @param[out] bg Background.
+ */
 static void PenColors(const VTerm *t, uint16_t *fg, uint16_t *bg)
 {
     *fg = ResolveFg(t);
@@ -74,6 +117,14 @@ static void PenColors(const VTerm *t, uint16_t *fg, uint16_t *bg)
     }
 }
 
+/**
+ * @brief Clears columns @p from to @p to - 1 of @p row in the background color.
+ *
+ * @param[in,out] t    Terminal.
+ * @param[in]     row  Row.
+ * @param[in]     from First column.
+ * @param[in]     to   Column after the last.
+ */
 static void FillRow(VTerm *t, uint32_t row, uint32_t from, uint32_t to)
 {
     uint16_t fg = ResolveFg(t);
@@ -85,6 +136,11 @@ static void FillRow(VTerm *t, uint32_t row, uint32_t from, uint32_t to)
     }
 }
 
+/**
+ * @brief Scrolls the screen up one row.
+ *
+ * @param[in,out] t Terminal.
+ */
 static void Scroll(VTerm *t)
 {
     t->ops->scroll_up(t->ctx, ResolveBg(t));
@@ -94,6 +150,11 @@ static void Scroll(VTerm *t)
     FillRow(t, t->rows - 1U, 0, t->cols);
 }
 
+/**
+ * @brief Moves the cursor down a row, scrolling at the bottom.
+ *
+ * @param[in,out] t Terminal.
+ */
 static void LineFeed(VTerm *t)
 {
     if (t->cy + 1U >= t->rows)
@@ -102,6 +163,14 @@ static void LineFeed(VTerm *t)
         t->cy++;
 }
 
+/**
+ * @brief Blanks columns @p from to @p to - 1 of @p row.
+ *
+ * @param[in,out] t    Terminal.
+ * @param[in]     row  Row.
+ * @param[in]     from First column.
+ * @param[in]     to   Column after the last.
+ */
 static void EraseCells(VTerm *t, uint32_t row, uint32_t from, uint32_t to)
 {
     FillRow(t, row, from, to);
@@ -113,6 +182,12 @@ static void EraseCells(VTerm *t, uint32_t row, uint32_t from, uint32_t to)
         t->ops->draw_cell(t->ctx, c, row, ' ', t->fg[row][c], t->bg[row][c]);
 }
 
+/**
+ * @brief ED: erases below, above or all of the screen.
+ *
+ * @param[in,out] t    Terminal.
+ * @param[in]     mode 0 below, 1 above, 2 or 3 all.
+ */
 static void EraseDisplay(VTerm *t, uint32_t mode)
 {
     if (mode == 0) {
@@ -129,6 +204,12 @@ static void EraseDisplay(VTerm *t, uint32_t mode)
     }
 }
 
+/**
+ * @brief EL: erases right of, left of or all of the cursor's row.
+ *
+ * @param[in,out] t    Terminal.
+ * @param[in]     mode 0 right, 1 left, 2 all.
+ */
 static void EraseLine(VTerm *t, uint32_t mode)
 {
     if (mode == 0)
@@ -139,6 +220,12 @@ static void EraseLine(VTerm *t, uint32_t mode)
         EraseCells(t, t->cy, 0, t->cols);
 }
 
+/**
+ * @brief Draws @p ch at the cursor and advances it, wrapping at the right edge.
+ *
+ * @param[in,out] t  Terminal.
+ * @param[in]     ch Character.
+ */
 static void PutChar(VTerm *t, char ch)
 {
     uint16_t fg;
@@ -159,6 +246,12 @@ static void PutChar(VTerm *t, char ch)
         t->cx++;
 }
 
+/**
+ * @brief Parser callback for a printable byte.
+ *
+ * @param[in] ctx Terminal.
+ * @param[in] ch  Byte.
+ */
 static void OnPrint(void *ctx, uint8_t ch)
 {
     VTerm *t = ctx;
@@ -166,6 +259,12 @@ static void OnPrint(void *ctx, uint8_t ch)
         PutChar(t, (char)ch);
 }
 
+/**
+ * @brief Parser callback for a C0 control byte.
+ *
+ * @param[in] ctx Terminal.
+ * @param[in] ch  Byte.
+ */
 static void OnControl(void *ctx, uint8_t ch)
 {
     VTerm *t = ctx;
@@ -192,6 +291,11 @@ static void OnControl(void *ctx, uint8_t ch)
     }
 }
 
+/**
+ * @brief SGR 0: default colors, no bold, no reverse.
+ *
+ * @param[in,out] t Terminal.
+ */
 static void PenReset(VTerm *t)
 {
     t->pen_fg = (VTermPen){.kind = VTERM_PEN_DEFAULT};
@@ -200,6 +304,15 @@ static void PenReset(VTerm *t)
     t->reverse = false;
 }
 
+/**
+ * @brief Parses an SGR 38/48 color (5;n or 2;r;g;b) starting at @p i.
+ *
+ * @param[out] pen Pen to set.
+ * @param[in]  p   Parameters.
+ * @param[in]  n   Parameter count.
+ * @param[in]  i   Index of the 38 or 48.
+ * @return Index of the last parameter used, or @p n if malformed.
+ */
 static uint32_t ExtendedColor(VTermPen *pen, const uint32_t *p, uint32_t n, uint32_t i)
 {
     if (i + 1 < n && p[i + 1] == 5 && i + 2 < n) {
@@ -214,6 +327,13 @@ static uint32_t ExtendedColor(VTermPen *pen, const uint32_t *p, uint32_t n, uint
     return n;
 }
 
+/**
+ * @brief Applies an SGR sequence.
+ *
+ * @param[in,out] t Terminal.
+ * @param[in]     p Parameters.
+ * @param[in]     n Parameter count.
+ */
 static void Sgr(VTerm *t, const uint32_t *p, uint32_t n)
 {
     if (n == 0) {
@@ -251,6 +371,15 @@ static void Sgr(VTerm *t, const uint32_t *p, uint32_t n)
     }
 }
 
+/**
+ * @brief Parser callback for a complete CSI sequence.
+ *
+ * @param[in] ctx    Terminal.
+ * @param[in] prefix Private prefix byte, or 0.
+ * @param[in] final  Final byte.
+ * @param[in] p      Parameters.
+ * @param[in] n      Parameter count.
+ */
 static void OnCsi(void *ctx, char prefix, char final, const uint32_t *p, uint32_t n)
 {
     VTerm *t = ctx;
@@ -291,6 +420,7 @@ static void OnCsi(void *ctx, char prefix, char final, const uint32_t *p, uint32_
     }
 }
 
+/** @brief Parser callbacks into the terminal. */
 static const AnsiHandlers g_handlers = {.print = OnPrint, .control = OnControl, .csi = OnCsi};
 
 void VTermInit(VTerm *t, const VTermOps *ops, void *ctx, uint32_t cols, uint32_t rows, uint16_t fg,

@@ -10,7 +10,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <util/ansi.h>
+#include <util/ansi_parser.h>
 
 /** @brief Most columns a VTerm holds. */
 #define VTERM_MAX_COLS 128

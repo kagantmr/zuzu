@@ -4,8 +4,8 @@
  * CSI sequences. OSC strings are skipped.
  */
 
-#ifndef UTIL_ANSI_H
-#define UTIL_ANSI_H
+#ifndef UTIL_ANSI_PARSER_H
+#define UTIL_ANSI_PARSER_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -58,4 +58,4 @@ void AnsiInit(Ansi *a, const AnsiHandlers *handlers, void *ctx);
  */
 void AnsiFeed(Ansi *a, uint8_t b);
 
-#endif /* UTIL_ANSI_H */
+#endif /* UTIL_ANSI_PARSER_H */

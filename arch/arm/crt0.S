@@ -46,6 +46,9 @@ _fini:
     bx lr
 .size _fini, . - _fini
 #else
+    mov r0, r6
+    mov r1, r7
+    bl __zcrt_env_init
     ldr r4, =__init_array_start
     ldr r5, =__init_array_end
 1:

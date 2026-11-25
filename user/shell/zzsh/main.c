@@ -8,6 +8,7 @@
 #include <ansi.h>
 #include <stdio.h>
 #include <string.h>
+#include <util/env.h>
 #include <util/path.h>
 
 /** @brief The startup file, relative to $HOME, run before the first prompt. */
@@ -28,9 +29,28 @@ static void RunRc(void)
 /** @brief Releases the file service connection at exit. */
 static void __attribute__((destructor)) ShellDetachFsd(void) { FsdDetach(ShFsd()); }
 
+/** @brief Exports every variable the shell was started with. */
+static void ImportEnv(void)
+{
+    for (uint32_t i = 0;; i++) {
+        const char *e = EnvAt(i);
+        if (!e)
+            break;
+        const char *eq = strchr(e, '=');
+        if (!eq || eq == e || (size_t)(eq - e) >= 64)
+            continue;
+        char name[64];
+        memcpy(name, e, (size_t)(eq - e));
+        name[eq - e] = '\0';
+        if (strcmp(name, "PWD") != 0)
+            VarExport(name, eq + 1);
+    }
+}
+
 int main(int argc, char **argv)
 {
     ShInit();
+    ImportEnv();
 
     if (argc >= 2) {
         /* zzsh <script>: run a file and leave; no terminal editing needed. */

@@ -1,5 +1,11 @@
-#include <util/ansi.h>
+/**
+ * @file
+ * @brief ANSI escape-sequence parser.
+ */
 
+#include <util/ansi_parser.h>
+
+/** @brief Largest value a CSI parameter accumulates to. */
 #define PARAM_CAP 100000U
 
 void AnsiInit(Ansi *a, const AnsiHandlers *handlers, void *ctx)
@@ -7,6 +13,11 @@ void AnsiInit(Ansi *a, const AnsiHandlers *handlers, void *ctx)
     *a = (Ansi){.handlers = handlers, .ctx = ctx, .state = ANSI_GROUND};
 }
 
+/**
+ * @brief Forgets the parameters of the sequence being parsed.
+ *
+ * @param[in,out] a Parser.
+ */
 static void CsiReset(Ansi *a)
 {
     a->count = 0;
@@ -15,6 +26,11 @@ static void CsiReset(Ansi *a)
     a->prefix = 0;
 }
 
+/**
+ * @brief Ends the current CSI parameter and stores it if there is room.
+ *
+ * @param[in,out] a Parser.
+ */
 static void CsiPush(Ansi *a)
 {
     if (a->count < ANSI_MAX_PARAMS)

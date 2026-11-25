@@ -1,4 +1,4 @@
-#include "gui.h"
+#include "ui.h"
 
 #include <net/nettypes.h>
 #include <net/protocols/netd.h>
@@ -32,7 +32,6 @@ static const char *const k_stat_names[NIC_STAT_COUNT] = {
 };
 
 static Handle g_netd = -1;
-static lv_timer_t *g_timer;
 static lv_obj_t *g_name;
 static lv_obj_t *g_link;
 static lv_obj_t *g_ip;
@@ -177,7 +176,7 @@ static lv_obj_t *Legend(lv_obj_t *parent, const char *text, uint32_t color)
     return label;
 }
 
-static void Open(lv_obj_t *parent)
+static void Build(lv_obj_t *parent)
 {
     g_have_prev = false;
     g_bytes = false;
@@ -249,22 +248,15 @@ static void Open(lv_obj_t *parent)
     lv_chart_set_all_values(g_chart, g_tx, LV_CHART_POINT_NONE);
 
     Sample(NULL);
-    g_timer = lv_timer_create(Sample, 1000, NULL);
+    lv_timer_create(Sample, 1000, NULL);
 }
 
-static void Close(void)
+int main(void)
 {
-    if (g_timer)
-        lv_timer_delete(g_timer);
-    g_timer = NULL;
+    WinSpec spec = {.width = 900, .height = 620, .layer = WM_LAYER_NORMAL, .title = "Netdiag"};
+    if (LvWinOpen(&spec) != ZUZU_OK)
+        return 1;
+    Build(UiRoot());
+    LvWinRun();
+    return 0;
 }
-
-const GuiApp g_app_netdiag = {
-    .name = "Netdiag",
-    .symbol = LV_SYMBOL_WIFI,
-    .color = GUI_GOOD,
-    .width = 900,
-    .height = 620,
-    .open = Open,
-    .close = Close,
-};

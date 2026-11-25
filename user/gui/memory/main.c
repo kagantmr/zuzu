@@ -1,4 +1,4 @@
-#include "gui.h"
+#include "ui.h"
 
 #include <zuzu/syspage.h>
 
@@ -12,7 +12,6 @@ static lv_obj_t *g_free;
 static lv_obj_t *g_lbx;
 static lv_obj_t *g_chart;
 static lv_chart_series_t *g_series;
-static lv_timer_t *g_timer;
 
 static void Sample(lv_timer_t *timer)
 {
@@ -32,7 +31,7 @@ static void Sample(lv_timer_t *timer)
     lv_chart_set_next_value(g_chart, g_series, (int32_t)(used / 1024U));
 }
 
-static void Open(lv_obj_t *parent)
+static void Build(lv_obj_t *parent)
 {
     const Syspage *sp = (const Syspage *)SYSPAGE;
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
@@ -82,22 +81,15 @@ static void Open(lv_obj_t *parent)
     lv_chart_set_all_values(g_chart, g_series, LV_CHART_POINT_NONE);
 
     Sample(NULL);
-    g_timer = lv_timer_create(Sample, 1000, NULL);
+    lv_timer_create(Sample, 1000, NULL);
 }
 
-static void Close(void)
+int main(void)
 {
-    if (g_timer)
-        lv_timer_delete(g_timer);
-    g_timer = NULL;
+    WinSpec spec = {.width = 760, .height = 540, .layer = WM_LAYER_NORMAL, .title = "Memory"};
+    if (LvWinOpen(&spec) != ZUZU_OK)
+        return 1;
+    Build(UiRoot());
+    LvWinRun();
+    return 0;
 }
-
-const GuiApp g_app_memory = {
-    .name = "Memory",
-    .symbol = LV_SYMBOL_SD_CARD,
-    .color = 0xd29922,
-    .width = 760,
-    .height = 540,
-    .open = Open,
-    .close = Close,
-};
