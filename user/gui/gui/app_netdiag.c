@@ -263,6 +263,8 @@ const GuiApp g_app_netdiag = {
     .name = "Netdiag",
     .symbol = LV_SYMBOL_WIFI,
     .color = GUI_GOOD,
+    .width = 900,
+    .height = 620,
     .open = Open,
     .close = Close,
 };

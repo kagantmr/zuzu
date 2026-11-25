@@ -166,6 +166,8 @@ Handle GuiEvent(void) { return g_event; }
 
 void GuiSetKeyHook(GuiKeyHook hook) { g_key_hook = hook; }
 
+Err GuiSwitchVt(uint32_t vt) { return FbCall(FB_CMD_SWITCH, vt, -1, NULL, 0, NULL); }
+
 void GuiSetWakeHook(uint32_t bit, GuiWakeHook hook)
 {
     if (bit < 32U)
@@ -174,10 +176,8 @@ void GuiSetWakeHook(uint32_t bit, GuiWakeHook hook)
 
 static void OnKey(uint8_t usage, bool pressed)
 {
-    if (g_key_hook) {
-        g_key_hook(usage, pressed);
+    if (g_key_hook && g_key_hook(usage, pressed))
         return;
-    }
     bool shift = (g_keymap.mods & (KEYMOD_LSHIFT | KEYMOD_RSHIFT)) != 0;
     uint8_t seq[KEYMAP_MAX_SEQ];
     size_t n = KeymapFeed(&g_keymap, usage, pressed, seq, sizeof(seq));
@@ -324,7 +324,7 @@ int main(void)
 
     CreateKeypad();
     CreatePointer();
-    ShellInit();
+    DesktopInit();
 
     for (;;) {
         Duration wait = TIMEOUT_INFINITE;

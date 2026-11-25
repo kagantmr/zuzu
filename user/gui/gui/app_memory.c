@@ -36,19 +36,19 @@ static void Open(lv_obj_t *parent)
 {
     const Syspage *sp = (const Syspage *)SYSPAGE;
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(parent, 16, 0);
+    lv_obj_set_style_pad_row(parent, 12, 0);
 
     lv_obj_t *top = lv_obj_create(parent);
     lv_obj_remove_style_all(top);
-    lv_obj_set_size(top, LV_PCT(100), 260);
+    lv_obj_set_size(top, LV_PCT(100), 230);
     lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(top, 16, 0);
+    lv_obj_set_style_pad_column(top, 12, 0);
 
     lv_obj_t *gauge = GuiPanel(top, "Physical memory in use");
-    lv_obj_set_size(gauge, 320, LV_PCT(100));
+    lv_obj_set_size(gauge, 260, LV_PCT(100));
     lv_obj_set_flex_align(gauge, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     g_arc = lv_arc_create(gauge);
-    lv_obj_set_size(g_arc, 180, 180);
+    lv_obj_set_size(g_arc, 160, 160);
     lv_arc_set_range(g_arc, 0, 100);
     lv_obj_set_clickable(g_arc, false);
     lv_obj_remove_style(g_arc, NULL, LV_PART_KNOB);
@@ -96,6 +96,8 @@ const GuiApp g_app_memory = {
     .name = "Memory",
     .symbol = LV_SYMBOL_SD_CARD,
     .color = 0xd29922,
+    .width = 760,
+    .height = 540,
     .open = Open,
     .close = Close,
 };

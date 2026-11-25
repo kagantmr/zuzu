@@ -8,7 +8,8 @@
 #include <stdint.h>
 #include <types.h>
 
-#define GUI_BAR_H 44
+#define GUI_TASKBAR_H 44
+#define GUI_TITLE_H 34
 #define GUI_BG 0x15202b
 #define GUI_PANEL 0x1e2a38
 #define GUI_TEXT 0xe6edf3
@@ -20,15 +21,18 @@
 #define GUI_BIT_TTY 8
 #define GUI_BIT_CHILD 9
 
-typedef void (*GuiKeyHook)(uint8_t usage, bool pressed);
+typedef bool (*GuiKeyHook)(uint8_t usage, bool pressed);
 typedef void (*GuiWakeHook)(void);
 
 typedef struct {
     const char *name;
     const char *symbol;
     uint32_t color;
+    int32_t width;
+    int32_t height;
     void (*open)(lv_obj_t *parent);
     void (*close)(void);
+    bool (*key)(uint8_t usage, bool pressed);
 } GuiApp;
 
 extern const GuiApp g_app_memory;
@@ -38,10 +42,10 @@ extern const GuiApp g_app_term;
 Handle GuiEvent(void);
 void GuiSetKeyHook(GuiKeyHook hook);
 void GuiSetWakeHook(uint32_t bit, GuiWakeHook hook);
+Err GuiSwitchVt(uint32_t vt);
 
-void ShellInit(void);
-void ShellOpen(const GuiApp *app);
-void ShellHome(void);
+void DesktopInit(void);
+void DesktopLaunch(const GuiApp *app);
 
 lv_obj_t *GuiPanel(lv_obj_t *parent, const char *title);
 lv_obj_t *GuiKeyValue(lv_obj_t *parent, const char *key);
