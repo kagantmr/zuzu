@@ -4,6 +4,7 @@
 #include <types.h>
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
+#include <zuzu/uptime.h>
 #include <zuzu/zuzu.h>
 
 #define LOG_TAG "gfxsvc"
@@ -14,6 +15,8 @@
 #define MASK(bit) (1U << (bit))
 #define POLL_MS 10
 #define FB_MAX_IMAGES 4U
+#define NO_VT (-1)
+#define NO_IMAGE UINT32_MAX
 
 typedef struct {
     bool ready;
@@ -26,18 +29,27 @@ typedef struct {
     uint32_t flip_sent;
     uint32_t vsync_seen;
     bool flip_pending;
+    bool flip_quiet;
+    uint32_t flip_target;
+    uint32_t shown;
+    uint32_t want;
 } Display;
 
 typedef struct {
     Handle live;
     Handle event;
+    uint32_t shift;
     uint32_t token;
-} Owner;
+    uint32_t image;
+} Client;
 
 static Handle g_port = -1;
 static Handle g_event = -1;
-static Display g_disp = {.ctl_mem = -1, .fb_mem = -1, .bell = -1, .live = -1};
-static Owner g_owner = {.live = -1, .event = -1};
+static Display g_disp = {.ctl_mem = -1, .fb_mem = -1, .bell = -1, .live = -1, .want = NO_IMAGE};
+static Client g_clients[FB_MAX_VTS];
+static int g_active = NO_VT;
+static int g_switch_to = NO_VT;
+static uint64_t g_switch_deadline;
 static uint32_t g_next_token = 1;
 
 static void ReplyStatus(Err status)
@@ -59,36 +71,139 @@ static void KickDriver(void)
         Signal(g_disp.bell, MASK(g_disp.bell_bit), false);
 }
 
-static void DropOwner(void)
+static bool ClientUsed(int vt) { return vt >= 0 && g_clients[vt].live >= 0; }
+
+static void ClientSignal(int vt, uint32_t bits)
 {
-    if (g_owner.live < 0)
+    if (ClientUsed(vt) && g_clients[vt].event >= 0)
+        Signal(g_clients[vt].event, bits << g_clients[vt].shift, false);
+}
+
+static void SetVsync(bool on)
+{
+    if (!g_disp.ctl)
         return;
-    CloseIf(&g_owner.live);
-    CloseIf(&g_owner.event);
-    g_owner.token = 0;
-    if (g_disp.ctl) {
-        g_disp.ctl->vsync_on = 0;
-        FBDRV_FENCE();
-        KickDriver();
+    g_disp.ctl->vsync_on = on ? 1U : 0U;
+    FBDRV_FENCE();
+    KickDriver();
+}
+
+static void DoFlip(uint32_t index, bool quiet)
+{
+    g_disp.ctl->flip_index = index;
+    FBDRV_FENCE();
+    g_disp.ctl->flip_seq = ++g_disp.flip_sent;
+    g_disp.flip_pending = true;
+    g_disp.flip_quiet = quiet;
+    g_disp.flip_target = index;
+    KickDriver();
+}
+
+static void ShowImage(uint32_t index)
+{
+    if (!g_disp.ready)
+        return;
+    if (g_disp.flip_pending) {
+        g_disp.flip_quiet = true;
+        g_disp.want = index;
+        return;
     }
+    g_disp.want = NO_IMAGE;
+    if (index != g_disp.shown)
+        DoFlip(index, true);
+}
+
+static void Activate(int vt)
+{
+    g_active = vt;
+    ShowImage(g_clients[vt].image);
+    ClientSignal(vt, FB_EVT_ACTIVATE);
+    LOG_INFO(LOG_TAG, "vt%d active", vt + 1);
+}
+
+static void ActivateNext(int from)
+{
+    g_active = NO_VT;
+    for (uint32_t k = 1; k <= FB_MAX_VTS; k++) {
+        int vt = (int)(((uint32_t)from + k) % FB_MAX_VTS);
+        if (ClientUsed(vt)) {
+            Activate(vt);
+            return;
+        }
+    }
+}
+
+static void FinishSwitch(void)
+{
+    int old = g_active;
+    int to = g_switch_to;
+    g_switch_to = NO_VT;
+    SetVsync(false);
+    if (ClientUsed(to))
+        Activate(to);
+    else if (ClientUsed(old))
+        Activate(old);
+    else
+        ActivateNext(old >= 0 ? old : 0);
+}
+
+static void DropClient(int vt)
+{
+    Client *c = &g_clients[vt];
+    CloseIf(&c->live);
+    CloseIf(&c->event);
+    *c = (Client){.live = -1, .event = -1};
+
+    if (vt == g_switch_to) {
+        g_switch_to = NO_VT;
+        if (ClientUsed(g_active))
+            ClientSignal(g_active, FB_EVT_ACTIVATE);
+    }
+    if (vt == g_active) {
+        if (g_switch_to != NO_VT) {
+            FinishSwitch();
+        } else {
+            SetVsync(false);
+            ActivateNext(vt);
+        }
+    }
+}
+
+static void ReapClients(void)
+{
+    for (int vt = 0; vt < (int)FB_MAX_VTS; vt++) {
+        if (ClientUsed(vt) && !HandleIsAlive(g_clients[vt].live))
+            DropClient(vt);
+    }
+}
+
+static int FindClient(uint32_t token)
+{
+    if (token == 0)
+        return NO_VT;
+    for (int vt = 0; vt < (int)FB_MAX_VTS; vt++) {
+        if (ClientUsed(vt) && g_clients[vt].token == token)
+            return vt;
+    }
+    return NO_VT;
 }
 
 static void DropDisplay(void)
 {
-    DropOwner();
+    for (int vt = 0; vt < (int)FB_MAX_VTS; vt++) {
+        if (ClientUsed(vt)) {
+            CloseIf(&g_clients[vt].live);
+            CloseIf(&g_clients[vt].event);
+        }
+    }
+    g_active = g_switch_to = NO_VT;
     if (g_disp.ctl)
         MemUnmap(g_disp.ctl);
     CloseIf(&g_disp.ctl_mem);
     CloseIf(&g_disp.fb_mem);
     CloseIf(&g_disp.bell);
     CloseIf(&g_disp.live);
-    g_disp = (Display){.ctl_mem = -1, .fb_mem = -1, .bell = -1, .live = -1};
-}
-
-static void NotifyOwner(uint32_t bits)
-{
-    if (g_owner.event >= 0)
-        Signal(g_owner.event, bits, false);
+    g_disp = (Display){.ctl_mem = -1, .fb_mem = -1, .bell = -1, .live = -1, .want = NO_IMAGE};
 }
 
 static void FillInfo(FbInfo *info, Err status, uint32_t token)
@@ -192,6 +307,7 @@ static void ServeGetInfo(void)
     }
     FbInfo info;
     FillInfo(&info, ZUZU_OK, 0);
+    info.vt = (uint32_t)(g_active + 1);
     memcpy(GetMessageBox(), &info, sizeof(info));
     Reply(sizeof(info), -1);
 }
@@ -206,35 +322,75 @@ static void ServeGetBuf(Handle live)
         ReplyStatus(ERR_BADARG);
         return;
     }
-    if (g_owner.live >= 0 && !HandleIsAlive(g_owner.live))
-        DropOwner();
-    if (g_owner.live >= 0) {
+    ReapClients();
+    int vt = NO_VT;
+    for (int i = 0; i < (int)FB_MAX_VTS; i++) {
+        if (!ClientUsed(i)) {
+            vt = i;
+            break;
+        }
+    }
+    if (vt == NO_VT) {
         HandleClose(live);
         ReplyStatus(ERR_BUSY);
         return;
     }
-
     SvcResult dup = HandleDuplicate(g_disp.fb_mem, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE);
     if (dup.r0 != ZUZU_OK) {
         HandleClose(live);
         ReplyStatus((Err)dup.r0);
         return;
     }
-
-    g_owner.live = live;
-    g_owner.token = g_next_token++;
+    Client *c = &g_clients[vt];
+    *c = (Client){.live = live, .event = -1, .token = g_next_token++, .image = 0};
     if (g_next_token == 0)
         g_next_token = 1;
+    if (g_active == NO_VT && g_switch_to == NO_VT)
+        Activate(vt);
 
     FbInfo info;
-    FillInfo(&info, ZUZU_OK, g_owner.token);
+    FillInfo(&info, ZUZU_OK, c->token);
+    info.vt = (uint32_t)(vt + 1);
+    info.active = vt == g_active ? 1U : 0U;
     memcpy(GetMessageBox(), &info, sizeof(info));
     Reply(sizeof(info), (Handle)dup.r1);
     HandleClose((Handle)dup.r1);
 }
 
-static void ServeFlip(uint32_t index)
+static void ServeSwitch(uint32_t target)
 {
+    if (!g_disp.ready) {
+        ReplyStatus(ERR_NOENT);
+        return;
+    }
+    ReapClients();
+    int vt = (int)target - 1;
+    if (target == 0 || target > FB_MAX_VTS || !ClientUsed(vt)) {
+        ReplyStatus(ERR_NOENT);
+        return;
+    }
+    if (g_switch_to != NO_VT) {
+        ReplyStatus(ERR_BUSY);
+        return;
+    }
+    if (vt != g_active) {
+        if (g_active == NO_VT) {
+            Activate(vt);
+        } else {
+            g_switch_to = vt;
+            g_switch_deadline = UptimeMs() + FB_SWITCH_TIMEOUT_MS;
+            ClientSignal(g_active, FB_EVT_DEACTIVATE);
+        }
+    }
+    ReplyStatus(ZUZU_OK);
+}
+
+static void ServeFlip(int vt, uint32_t index)
+{
+    if (vt != g_active || g_switch_to != NO_VT) {
+        ReplyStatus(ERR_BUSY);
+        return;
+    }
     if (index >= g_disp.ctl->buffers) {
         ReplyStatus(ERR_BADARG);
         return;
@@ -243,45 +399,51 @@ static void ServeFlip(uint32_t index)
         ReplyStatus(ERR_BUSY);
         return;
     }
-    g_disp.ctl->flip_index = index;
-    FBDRV_FENCE();
-    g_disp.ctl->flip_seq = ++g_disp.flip_sent;
-    g_disp.flip_pending = true;
-    KickDriver();
+    g_clients[vt].image = index;
+    DoFlip(index, false);
     ReplyStatus(ZUZU_OK);
 }
 
-static void ServeOwnerCmd(const FbRequest *req, Handle *granted)
+static void ServeClientCmd(const FbRequest *req, Handle *granted)
 {
-    if (g_owner.live >= 0 && !HandleIsAlive(g_owner.live))
-        DropOwner();
-    if (!g_disp.ready || g_owner.live < 0 || req->token != g_owner.token) {
+    ReapClients();
+    int vt = FindClient(req->token);
+    if (!g_disp.ready || vt == NO_VT) {
         ReplyStatus(ERR_BADARG);
         return;
     }
-
     switch (req->cmd) {
     case FB_CMD_RELEASE:
-        DropOwner();
+        DropClient(vt);
         ReplyStatus(ZUZU_OK);
         break;
     case FB_CMD_SET_EVENT:
-        if (*granted < 0) {
+        if (*granted < 0 || req->arg >= 32U) {
             ReplyStatus(ERR_BADARG);
             break;
         }
-        CloseIf(&g_owner.event);
-        g_owner.event = *granted;
+        CloseIf(&g_clients[vt].event);
+        g_clients[vt].event = *granted;
+        g_clients[vt].shift = req->arg;
         *granted = -1;
+        if (vt == g_active && g_switch_to == NO_VT)
+            ClientSignal(vt, FB_EVT_ACTIVATE);
         ReplyStatus(ZUZU_OK);
         break;
     case FB_CMD_FLIP:
-        ServeFlip(req->arg);
+        ServeFlip(vt, req->arg);
         break;
     case FB_CMD_SET_VSYNC:
-        g_disp.ctl->vsync_on = req->arg != 0;
-        FBDRV_FENCE();
-        KickDriver();
+        if (vt != g_active || g_switch_to != NO_VT) {
+            ReplyStatus(ERR_BUSY);
+            break;
+        }
+        SetVsync(req->arg != 0);
+        ReplyStatus(ZUZU_OK);
+        break;
+    case FB_CMD_DEACTIVATED:
+        if (vt == g_active && g_switch_to != NO_VT)
+            FinishSwitch();
         ReplyStatus(ZUZU_OK);
         break;
     default:
@@ -322,17 +484,20 @@ static void HandleRequest(const PortWaitResult *r)
         ServeGetBuf(granted);
         granted = -1;
         break;
+    case FB_CMD_SWITCH:
+        ServeSwitch(req.arg);
+        break;
     case FB_CMD_RELEASE:
     case FB_CMD_SET_EVENT:
     case FB_CMD_FLIP:
     case FB_CMD_SET_VSYNC:
-        ServeOwnerCmd(&req, &granted);
+    case FB_CMD_DEACTIVATED:
+        ServeClientCmd(&req, &granted);
         break;
     default:
         ReplyStatus(ERR_NOSYS);
         break;
     }
-
 out:
     if (granted >= 0)
         HandleClose(granted);
@@ -350,27 +515,41 @@ static void ServiceDisplay(void)
     if (!g_disp.ready)
         return;
 
+    ReapClients();
+    if (g_switch_to != NO_VT && UptimeMs() >= g_switch_deadline) {
+        LOG_WARN(LOG_TAG, "vt%d did not release the display in time", g_active + 1);
+        FinishSwitch();
+    }
+
     FBDRV_FENCE();
     uint32_t bits = 0;
     if (g_disp.flip_pending && g_disp.ctl->flip_ack == g_disp.flip_sent) {
         g_disp.flip_pending = false;
-        bits |= FB_EVT_FLIPPED;
+        g_disp.shown = g_disp.flip_target;
+        if (!g_disp.flip_quiet)
+            bits |= FB_EVT_FLIPPED;
+        if (g_disp.want != NO_IMAGE)
+            ShowImage(g_disp.want);
     }
     uint32_t vsync = g_disp.ctl->vsync_seq;
     if (vsync != g_disp.vsync_seen) {
         g_disp.vsync_seen = vsync;
         bits |= FB_EVT_VSYNC;
     }
-    if (bits)
-        NotifyOwner(bits);
+    if (bits && g_switch_to == NO_VT)
+        ClientSignal(g_active, bits);
 }
 
 int main(void)
 {
+    for (uint32_t vt = 0; vt < FB_MAX_VTS; vt++)
+        g_clients[vt] = (Client){.live = -1, .event = -1};
+
     g_port = CreatePort();
     g_event = CreateEvent();
     if (g_port < 0 || g_event < 0)
         return ERR_NOMEM;
+
     Err rc = Bind(EVENT_PORT, g_event, g_port, BIT_PORT);
     if (rc != ZUZU_OK)
         return rc;
@@ -384,14 +563,12 @@ int main(void)
 
     for (;;) {
         WaitOn(g_event, POLL_MS);
-
         for (;;) {
             PortWaitResult r = FormatToPortWait(WaitOn(g_port, TIMEOUT_POLL));
             if (r.status != ZUZU_OK)
                 break;
             HandleRequest(&r);
         }
-
         ServiceDisplay();
     }
 }

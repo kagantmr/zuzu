@@ -303,3 +303,14 @@ void TermShowCursor(bool on)
 }
 
 void TermFeed(uint8_t b) { AnsiFeed(&g_ansi, b); }
+
+void TermRepaint(bool cursor)
+{
+    DisplayClear(DEFAULT_BG);
+    for (uint32_t row = 0; row < g_rows; row++) {
+        for (uint32_t col = 0; col < g_cols; col++)
+            DisplayDrawCell(col, row, g_cells[row][col], g_cell_fg[row][col], g_cell_bg[row][col]);
+    }
+    if (cursor)
+        TermShowCursor(true);
+}

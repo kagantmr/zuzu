@@ -12,6 +12,7 @@ static FbInfo g_info;
 static uint8_t *g_fb;
 static uint32_t g_cols;
 static uint32_t g_rows;
+static bool g_active;
 
 static Err FbCall(uint32_t cmd, uint32_t arg, Handle grant, void *reply, uint32_t reply_len,
                   Handle *reply_grant)
@@ -44,6 +45,8 @@ bool DisplayPrintable(uint8_t b) { return b >= FONT_FIRST_CHAR && b <= FONT_LAST
 
 void DisplayDrawCell(uint32_t col, uint32_t row, char ch, uint16_t fg, uint16_t bg)
 {
+    if (!g_active)
+        return;
     uint32_t idx = (uint8_t)ch;
     if (!DisplayPrintable((uint8_t)idx))
         idx = ' ';
@@ -59,6 +62,8 @@ void DisplayDrawCell(uint32_t col, uint32_t row, char ch, uint16_t fg, uint16_t 
 
 void DisplayClearRow(uint32_t row, uint16_t color)
 {
+    if (!g_active)
+        return;
     for (uint32_t gy = 0; gy < FONT_GLYPH_H; gy++) {
         uint16_t *dst = Pixel(0, (row * FONT_GLYPH_H) + gy);
         for (uint32_t x = 0; x < g_cols * FONT_GLYPH_W; x++)
@@ -68,12 +73,34 @@ void DisplayClearRow(uint32_t row, uint16_t color)
 
 void DisplayScrollUp(uint16_t color)
 {
+    if (!g_active)
+        return;
     uint32_t line_bytes = g_info.stride * FONT_GLYPH_H;
     memmove(g_fb, g_fb + line_bytes, line_bytes * (g_rows - 1U));
     DisplayClearRow(g_rows - 1U, color);
 }
 
-Err DisplayInit(void)
+void DisplayClear(uint16_t color)
+{
+    if (!g_active)
+        return;
+    for (uint32_t y = 0; y < g_info.height; y++) {
+        uint16_t *dst = Pixel(0, y);
+        for (uint32_t x = 0; x < g_info.width; x++)
+            dst[x] = color;
+    }
+}
+
+bool DisplaySetActive(bool active)
+{
+    bool was = g_active;
+    g_active = active;
+    return was;
+}
+
+Err DisplayAckDeactivate(void) { return FbCall(FB_CMD_DEACTIVATED, 0, -1, NULL, 0, NULL); }
+
+Err DisplayInit(Handle event, uint32_t shift)
 {
     for (int i = 0; i < 500 && g_gfx < 0; i++) {
         g_gfx = LookupService("/svc/gfx");
@@ -108,6 +135,7 @@ Err DisplayInit(void)
     if (mem < 0)
         return ERR_MALFORMED;
     g_token = g_info.token;
+    g_active = g_info.active != 0;
 
     g_fb = MemMap(mem, 0, PROT_RW);
     if (PtrIsErr(g_fb))
@@ -121,5 +149,11 @@ Err DisplayInit(void)
         g_rows = MAX_ROWS;
     if (g_cols == 0 || g_rows == 0)
         return ERR_BADARG;
-    return ZUZU_OK;
+
+    rc = HandleDup(event, PERM_SEND | PERM_TXFR, MARKER_NONE, &dup);
+    if (rc != ZUZU_OK)
+        return rc;
+    rc = FbCall(FB_CMD_SET_EVENT, shift, dup, NULL, 0, NULL);
+    HandleClose(dup);
+    return rc;
 }

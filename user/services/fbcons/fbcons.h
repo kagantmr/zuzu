@@ -10,7 +10,10 @@
 #define DEFAULT_FG 0xC618U
 #define DEFAULT_BG 0x0000U
 
-Err DisplayInit(void);
+Err DisplayInit(Handle event, uint32_t shift);
+bool DisplaySetActive(bool active);
+Err DisplayAckDeactivate(void);
+void DisplayClear(uint16_t color);
 uint32_t DisplayCols(void);
 uint32_t DisplayRows(void);
 bool DisplayPrintable(uint8_t b);
@@ -24,5 +27,6 @@ uint16_t ColorFromIndex(uint8_t index);
 void TermInit(void);
 void TermFeed(uint8_t b);
 void TermShowCursor(bool on);
+void TermRepaint(bool cursor);
 
 #endif /* FBCONS_H */

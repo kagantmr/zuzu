@@ -1,4 +1,5 @@
 #include "fbcons.h"
+#include <dev/protocols/fb.h>
 #include <dev/tty.h>
 #include <zuzu/service.h>
 #include <zuzu/shm_ring.h>
@@ -8,6 +9,8 @@
 #include <util/log.h>
 
 #define BIT_KICK 2
+#define FB_EVT_SHIFT 8
+#define FB_BITS (FB_EVT_ALL << FB_EVT_SHIFT)
 #define MASK(bit) (1U << (bit))
 #define ALIAS "fbcons"
 
@@ -51,7 +54,7 @@ int main(void)
     if (g_event < 0)
         return 1;
 
-    Err rc = DisplayInit();
+    Err rc = DisplayInit(g_event, FB_EVT_SHIFT);
     if (rc != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "display unavailable rc=%d", rc);
         return 1;
@@ -75,7 +78,18 @@ int main(void)
         RegisterService("/svc/fbcons", ready);
 
     for (;;) {
-        WaitOn(g_event, TIMEOUT_INFINITE);
+        EventWaitResult w = WaitOnEvent(g_event, TIMEOUT_INFINITE, 0, false);
+        if (w.status != ZUZU_OK)
+            continue;
+        uint32_t fb = (w.bits & FB_BITS) >> FB_EVT_SHIFT;
+        if (fb & FB_EVT_DEACTIVATE) {
+            DisplaySetActive(false);
+            DisplayAckDeactivate();
+        }
+        if (fb & FB_EVT_ACTIVATE) {
+            DisplaySetActive(true);
+            TermRepaint(true);
+        }
         if (Drain())
             Signal(g_tty.doorbell, MASK(g_tty.bit), false);
     }
