@@ -35,6 +35,7 @@ static bool g_fsd_up;
 static KeymapState g_keymap;
 
 static Handle g_task = -1;
+static Spid g_pid = -1;
 static bool g_running;
 
 static lv_obj_t *g_canvas;
@@ -143,20 +144,22 @@ static void OnTtyKick(void)
         Signal(g_tty.doorbell, 1U << g_tty.bit, false);
 }
 
-static void TermKey(uint8_t usage, bool pressed)
+static bool TermKey(uint8_t usage, bool pressed)
 {
+    if (!g_running || !g_canvas || !g_tty_up)
+        return false;
     uint8_t seq[KEYMAP_MAX_SEQ];
     size_t n = KeymapFeed(&g_keymap, usage, pressed, seq, sizeof(seq));
-    if (n == 0 || !g_tty_up)
-        return;
+    if (n == 0)
+        return true;
     ShmRingPush(&g_tty.shm->up_hdr, g_tty.shm->up_data, seq, (uint32_t)n);
     Signal(g_tty.doorbell, 1U << g_tty.bit, false);
+    return true;
 }
 
 static void SetRunning(bool running)
 {
     g_running = running;
-    GuiSetKeyHook(running && g_canvas ? TermKey : NULL);
     if (g_run)
         lv_obj_set_state(g_run, LV_STATE_DISABLED, running);
     if (g_cmd)
@@ -167,7 +170,10 @@ static void OnChildExit(void)
 {
     if (g_task >= 0)
         HandleClose(g_task);
+    if (g_pid >= 0)
+        HandleDestroy((Handle)g_pid);
     g_task = -1;
+    g_pid = -1;
     if (!g_running)
         return;
     Print("\r\n\x1b[0m\x1b[33m[process exited]\x1b[0m\r\n");
@@ -269,7 +275,8 @@ static void Run(const char *cmdline)
                       .envc = 3};
     const char *name = strrchr(path, '/') + 1;
     Handle task = -1;
-    rc = SpawnProcessObjAttr(image, size, name, argbuf, arglen, argc, &attr, NULL, &task);
+    Spid pid = -1;
+    rc = SpawnProcessObjAttr(image, size, name, argbuf, arglen, argc, &attr, &pid, &task);
     HandleClose(image);
     if (rc != ZUZU_OK) {
         Print("[cannot run: ");
@@ -278,6 +285,7 @@ static void Run(const char *cmdline)
         return;
     }
     g_task = task;
+    g_pid = pid;
     Bind(EVENT_TASK, GuiEvent(), task, GUI_BIT_CHILD);
     KeymapInit(&g_keymap);
     SetRunning(true);
@@ -306,8 +314,8 @@ static void InitTerminal(int32_t width, int32_t height)
     GuiSetWakeHook(GUI_BIT_TTY, OnTtyKick);
     GuiSetWakeHook(GUI_BIT_CHILD, OnChildExit);
     g_ready = true;
-    Print("Type a command and press Run. Programs built against newlib (kilo, ls, cat, grep)\r\n"
-          "draw here; Home leaves them running.\r\n\r\n");
+    Print("Type a command and press Run. Newlib programs (kilo, ls, cat, grep)\r\n"
+          "draw here; closing the window leaves them running.\r\n\r\n");
 }
 
 static void Open(lv_obj_t *parent)
@@ -359,7 +367,6 @@ static void Open(lv_obj_t *parent)
 
 static void Close(void)
 {
-    GuiSetKeyHook(NULL);
     g_canvas = NULL;
     g_cmd = NULL;
     g_run = NULL;
@@ -369,6 +376,9 @@ const GuiApp g_app_term = {
     .name = "Terminal",
     .symbol = LV_SYMBOL_KEYBOARD,
     .color = 0xbc8cff,
+    .width = 900,
+    .height = 600,
     .open = Open,
     .close = Close,
+    .key = TermKey,
 };

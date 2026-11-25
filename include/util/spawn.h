@@ -29,8 +29,10 @@ extern "C" {
  * @param[in]  argbuf     argv strings back to back, each NUL-terminated ("a\0b\0"), or NULL.
  * @param[in]  argbuf_len Length of @p argbuf including the NULs, or 0.
  * @param[in]  argc       Number of strings in @p argbuf, or 0.
- * @param[out] out_pid    Receives the new space's handle; may be NULL.
- * @param[out] out_task   Receives the new task's handle; may be NULL.
+ * @param[out] out_pid    Receives the new space's handle. HandleDestroy it once the program has
+ *                        exited; if NULL, the space is never torn down and leaks.
+ * @param[out] out_task   Receives the new task's handle, to close once done with it; if NULL,
+ *                        the handle stays open in the caller's table.
  * @return ZUZU_OK, or an error code.
  * @retval ERR_MALFORMED The image is neither a valid ZXF nor a valid ARM ELF32 executable.
  * @retval ERR_OVERFLOW  The image has more than 8 load segments.
@@ -68,8 +70,10 @@ typedef struct {
  * @param[in]  argbuf_len Length of @p argbuf, or 0.
  * @param[in]  argc       Number of strings in @p argbuf, or 0.
  * @param[in]  attr       Scheduling settings, or NULL to inherit both.
- * @param[out] out_pid    Receives the new space's handle; may be NULL.
- * @param[out] out_task   Receives the new task's handle; may be NULL.
+ * @param[out] out_pid    Receives the new space's handle. HandleDestroy it once the program has
+ *                        exited; if NULL, the space is never torn down and leaks.
+ * @param[out] out_task   Receives the new task's handle, to close once done with it; if NULL,
+ *                        the handle stays open in the caller's table.
  * @return As SpawnProcess(); also ERR_BADARG if prio is above max_prio, or
  *         ERR_NOPERM if either is above the caller's maximum.
  */
@@ -91,8 +95,10 @@ Err SpawnProcessAttr(const void *image, size_t size, const char *name, const cha
  * @param[in]  argbuf     argv strings back to back, or NULL.
  * @param[in]  argbuf_len Length of @p argbuf, or 0.
  * @param[in]  argc       Number of strings in @p argbuf, or 0.
- * @param[out] out_pid    Receives the new space's handle; may be NULL.
- * @param[out] out_task   Receives the new task's handle; may be NULL.
+ * @param[out] out_pid    Receives the new space's handle. HandleDestroy it once the program has
+ *                        exited; if NULL, the space is never torn down and leaks.
+ * @param[out] out_task   Receives the new task's handle, to close once done with it; if NULL,
+ *                        the handle stays open in the caller's table.
  * @return As SpawnProcess(), or the error from mapping @p image_obj.
  */
 Err SpawnProcessObj(Handle image_obj, size_t size, const char *name, const char *argbuf,
@@ -108,8 +114,10 @@ Err SpawnProcessObj(Handle image_obj, size_t size, const char *name, const char 
  * @param[in]  argbuf_len Length of @p argbuf, or 0.
  * @param[in]  argc       Number of strings in @p argbuf, or 0.
  * @param[in]  attr       Scheduling settings, or NULL to inherit both.
- * @param[out] out_pid    Receives the new space's handle; may be NULL.
- * @param[out] out_task   Receives the new task's handle; may be NULL.
+ * @param[out] out_pid    Receives the new space's handle. HandleDestroy it once the program has
+ *                        exited; if NULL, the space is never torn down and leaks.
+ * @param[out] out_task   Receives the new task's handle, to close once done with it; if NULL,
+ *                        the handle stays open in the caller's table.
  * @return As SpawnProcessAttr().
  */
 Err SpawnProcessObjAttr(Handle image_obj, size_t size, const char *name, const char *argbuf,

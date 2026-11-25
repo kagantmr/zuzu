@@ -275,8 +275,10 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
  * @param[in]  argbuf_len Length of @p argbuf.
  * @param[in]  argc       Number of strings.
  * @param[in]  attr       Scheduling, stdio and environment settings, or NULL.
- * @param[out] out_pid    Receives the new space's handle; may be NULL.
- * @param[out] out_task   Receives the new task's handle; may be NULL.
+ * @param[out] out_pid    Receives the new space's handle. HandleDestroy it once the program has
+ *                        exited; if NULL, the space is never torn down and leaks.
+ * @param[out] out_task   Receives the new task's handle, to close once done with it; if NULL,
+ *                        the handle stays open in the caller's table.
  * @return As SpawnProcessAttr().
  */
 static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, const char *name,
