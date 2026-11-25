@@ -51,13 +51,17 @@ typedef struct {
     uint32_t expire_ms;  /* REACHABLE aging   */
     ArpPending queue[ARP_MAX_QUEUE];
     uint8_t qlen;
+    NetInterface *nif;
 } ArpEntry;
 
+/* Verdict of ArpAcdStart: conflict is true if another host already uses the address. */
+typedef void (*ArpAcdCb)(NetInterface *nif, bool conflict);
+
 void ArpInit(void);
-void ArpFlush(void);
-void ArpLearn(Ipv4Addr ip, const uint8_t *mac_addr);
-int ArpRx(uint8_t *data, uint16_t len);
-int ArpRequest(Ipv4Addr ip);
+void ArpFlush(NetInterface *nif);
+void ArpLearn(NetInterface *nif, Ipv4Addr ip, const uint8_t *mac_addr);
+int ArpRx(NetInterface *nif, uint8_t *data, uint16_t len);
+int ArpRequest(NetInterface *nif, Ipv4Addr ip);
 /* Send a zero-copy frame to ip, resolving the MAC first. On a cache hit the
    frame's tx-ring slot is committed in place; otherwise the built bytes are
    copied into the pending queue and ARP resolution is triggered. The builder's
@@ -73,6 +77,6 @@ void ArpTick(void);
    on_result fires asynchronously, driven by ArpTick / ArpRx. DHCP uses this to
    validate an offered lease before committing it. A new call replaces any probe
    already in flight. */
-void ArpAcdStart(Ipv4Addr ip, void (*on_result)(bool conflict));
+void ArpAcdStart(NetInterface *nif, Ipv4Addr ip, ArpAcdCb on_result);
 
 #endif /* NETD_ARP_H */

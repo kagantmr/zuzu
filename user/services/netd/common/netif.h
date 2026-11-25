@@ -26,7 +26,7 @@ typedef struct {
 } NetifDriver;
 
 /** @brief One network interface. */
-typedef struct Netif {
+typedef struct {
     char name[NETIF_NAME_MAX]; /**< Interface name, e.g. "eth0". */
     uint8_t index;             /**< Slot in netifs[]. */
     MacAddr mac;               /**< Hardware address reported by the driver. */
@@ -39,6 +39,9 @@ typedef struct Netif {
 
 /** @brief Interface table. */
 extern NetInterface netifs[NETIF_MAX];
+
+/** @brief Numbers every slot of netifs[]; call once at startup. */
+void NetifInit(void);
 
 /** @brief The only interface until routing picks one per packet. */
 #define netif (netifs[0])

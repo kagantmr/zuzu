@@ -81,12 +81,15 @@ typedef enum {
 } DhcpState;
 
 /* Fired once, the first time a lease is acquired (renewals don't re-fire). */
-typedef void (*DhcpBoundCb)(void);
+typedef void (*DhcpBoundCb)(NetInterface *nif);
 
+/* Binds the client port; on_bound fires per interface on its first lease. */
 void DhcpInit(DhcpBoundCb on_bound);
+/* Runs a DHCP client on nif, clearing its addresses and starting DORA. */
+void DhcpStart(NetInterface *nif);
 void DhcpTick(void);
-bool DhcpIsBound(void);
-void DhcpLinkDown(void);
-void DhcpLinkUp(void);
+bool DhcpIsBound(const NetInterface *nif);
+void DhcpLinkDown(NetInterface *nif);
+void DhcpLinkUp(NetInterface *nif);
 
 #endif

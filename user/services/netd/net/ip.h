@@ -33,7 +33,7 @@ uint16_t InetChecksum(uint8_t *data, size_t len);
    + L4 segment). Pass accum=0 to the first call, chain the result, then fold. */
 uint32_t InetCsumPartial(const uint8_t *data, size_t len, uint32_t accum);
 uint16_t InetCsumFold(uint32_t accum);
-void IpRx(uint8_t *data, uint16_t len, const uint8_t *src_mac);
+void IpRx(NetInterface *nif, uint8_t *data, uint16_t len, const uint8_t *src_mac);
 int IpTx(uint8_t *payload, uint16_t payload_len, Ipv4Addr src_ip, Ipv4Addr dst_ip,
          uint8_t protocol);
 /* Zero-copy send: prepend an IP header onto an already-built L4 frame and hand

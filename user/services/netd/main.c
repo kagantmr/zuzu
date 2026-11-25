@@ -46,19 +46,19 @@ static void CheckLink(void)
     link_up = up;
     if (!up) {
         LOG_INFO(LOG_TAG, "link down");
-        ArpFlush();
-        DhcpLinkDown();
+        ArpFlush(&netif);
+        DhcpLinkDown(&netif);
     } else {
         LOG_INFO(LOG_TAG, "link up");
-        DhcpLinkUp();
+        DhcpLinkUp(&netif);
     }
 }
 
 /* Fires once the lease is first acquired: the network is now usable. */
-static __attribute__((cold)) void OnDhcpBound(void)
+static __attribute__((cold)) void OnDhcpBound(NetInterface *nif)
 {
-    LOG_INFO(LOG_TAG, "network up: ip %u.%u.%u.%u gw %u.%u.%u.%u dns %u.%u.%u.%u", IP4(netif.ip),
-             IP4(netif.gateway), IP4(netif.dns));
+    LOG_INFO(LOG_TAG, "network up: %s ip %u.%u.%u.%u gw %u.%u.%u.%u dns %u.%u.%u.%u",
+             nif->name, IP4(nif->ip), IP4(nif->gateway), IP4(nif->dns));
 }
 
 static Err InitNetdServices(void)
@@ -273,6 +273,8 @@ int main()
 {
     Err retval = ZUZU_OK;
 
+    NetifInit();
+
     retval = InitNetdServices();
     if (retval < 0)
         return retval;
@@ -293,7 +295,8 @@ int main()
     UdpInit();
     PortInit();
     DnsInit();
-    DhcpInit(OnDhcpBound); /* kicks off DORA; OnDhcpBound fires when bound */
+    DhcpInit(OnDhcpBound);
+    DhcpStart(&netif); /* kicks off DORA; OnDhcpBound fires when bound */
     
     UdpBind(7, UdpEchoHandler);
 
@@ -322,9 +325,11 @@ int main()
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
         NicFrame *frame;
-        while ((frame = PacketRingPeek(netif.drv.rx_ring)) != NULL) {
-            EthRx(frame->data, (uint16_t)frame->len);
-            PacketRingConsume(netif.drv.rx_ring);
+        for (int i = 0; i < NETIF_MAX; i++) {
+            while ((frame = PacketRingPeek(netifs[i].drv.rx_ring)) != NULL) {
+                EthRx(&netifs[i], frame->data, (uint16_t)frame->len);
+                PacketRingConsume(netifs[i].drv.rx_ring);
+            }
         }
 
         PortWaitResult call;

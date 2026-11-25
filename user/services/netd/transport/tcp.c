@@ -11,7 +11,7 @@
 
 int TcpConnect(Ipv4Addr remote_ip, NetPort remote_port, const TcpCallbacks *cb, void *ctx)
 {
-    if (!DhcpIsBound())
+    if (netif.ip == 0)
         return ERR_NOTCONN;
     int idx = TcpPcbAlloc();
     if (idx < 0)

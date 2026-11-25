@@ -9,7 +9,7 @@
 #include <string.h>
 #include <zuzu/zuzu.h>
 
-int EthRx(uint8_t *data, uint16_t len)
+int EthRx(NetInterface *nif, uint8_t *data, uint16_t len)
 {
     EthHdr *hdr = (EthHdr *)data;
     if (len < 14) {
@@ -18,14 +18,14 @@ int EthRx(uint8_t *data, uint16_t len)
     uint16_t et = ntohs(hdr->ethertype);
     switch (et) {
     case ETH_TYPE_ARP: {
-        ArpRx(data + 14, len - 14);
+        ArpRx(nif, data + 14, len - 14);
         break;
     }
     case ETH_TYPE_IP: {
         if (len < sizeof(EthHdr) + sizeof(IpHeader)) {
             return ERR_MALFORMED;
         }
-        IpRx(data + 14, len - 14, hdr->src_mac);
+        IpRx(nif, data + 14, len - 14, hdr->src_mac);
         break;
     }
     default: {

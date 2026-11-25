@@ -2,6 +2,7 @@
 #define UDP_H
 
 #include "../common/globals.h"
+#include "../common/netif.h"
 #include <types.h>
 
 typedef struct __attribute__((packed)) {
@@ -24,5 +25,8 @@ void UdpUnbind(NetPort port);
 void UdpRecv(void *data, uint16_t len, Ipv4Addr src_ip, Ipv4Addr dst_ip);
 int UdpSend(Ipv4Addr dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *payload,
             uint16_t payload_len);
+/* UdpSend out of nif, with nif's address as the source. */
+int UdpSendVia(NetInterface *nif, Ipv4Addr dst_ip, NetPort src_port, NetPort dst_port,
+               const uint8_t *payload, uint16_t payload_len);
 
 #endif

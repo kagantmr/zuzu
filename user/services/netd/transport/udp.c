@@ -103,6 +103,12 @@ void UdpRecv(void *data, uint16_t len, Ipv4Addr src_ip, Ipv4Addr dst_ip)
 int UdpSend(Ipv4Addr dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *payload,
             uint16_t payload_len)
 {
+    return UdpSendVia(&netif, dst_ip, src_port, dst_port, payload, payload_len);
+}
+
+int UdpSendVia(NetInterface *nif, Ipv4Addr dst_ip, NetPort src_port, NetPort dst_port,
+               const uint8_t *payload, uint16_t payload_len)
+{
     if (payload_len > UDP_MAX_PAYLOAD) {
         return ERR_OVERFLOW;
     }
@@ -110,7 +116,7 @@ int UdpSend(Ipv4Addr dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *
     /* Reserve room for the Ethernet + IP + UDP headers in front of the payload,
        then copy the caller's payload once into its final position in the slot. */
     TxFrame f;
-    int rc = TxFrameInit(&f, &netif, sizeof(EthHdr) + sizeof(IpHeader) + sizeof(UdpHeader));
+    int rc = TxFrameInit(&f, nif, sizeof(EthHdr) + sizeof(IpHeader) + sizeof(UdpHeader));
     if (rc != ZUZU_OK)
         return rc;
 
@@ -133,8 +139,8 @@ int UdpSend(Ipv4Addr dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *
     /* Checksum covers the pseudo-header and the whole contiguous segment. A
        computed value of 0 is transmitted as 0xFFFF so the receiver doesn't
        mistake it for "no checksum" (RFC 768). */
-    uint16_t cs = htons(UdpChecksum(netif.ip, dst_ip, TxFrameData(&f), TxFrameLen(&f)));
+    uint16_t cs = htons(UdpChecksum(nif->ip, dst_ip, TxFrameData(&f), TxFrameLen(&f)));
     hdr->checksum = cs ? cs : 0xFFFF;
 
-    return IpSend(&f, netif.ip, dst_ip, IP_PROTO_UDP);
+    return IpSend(&f, nif->ip, dst_ip, IP_PROTO_UDP);
 }
