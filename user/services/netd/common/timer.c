@@ -44,13 +44,16 @@ void TimerArm(Timer *t, uint32_t deadline_ms, void (*cb)(void *arg), void *arg)
     armed_count++;
 }
 
-uint32_t TimerNextDeadline(void)
+uint32_t TimerNextDeadline(uint32_t within_ms)
 {
     if (armed_count == 0)
         return TIMER_NO_DEADLINE;
 
     uint32_t first = done_tick + 1;
-    for (uint32_t i = 0; i < TIMER_WHEEL_SLOTS; i++) {
+    uint32_t slots = TickOf(within_ms) + 2;
+    if (slots > TIMER_WHEEL_SLOTS)
+        slots = TIMER_WHEEL_SLOTS;
+    for (uint32_t i = 0; i < slots; i++) {
         uint32_t tick = first + i;
         uint32_t end_ms = (tick + 1) * TIMER_TICK_MS;
         bool found = false;
@@ -68,7 +71,7 @@ uint32_t TimerNextDeadline(void)
         if (found)
             return best;
     }
-    return (first + TIMER_WHEEL_SLOTS) * TIMER_TICK_MS;
+    return TIMER_NO_DEADLINE;
 }
 
 void TimerRunExpired(void)

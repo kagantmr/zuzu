@@ -327,7 +327,7 @@ int main(int argc, char **argv)
         /* 1. size the sleep: until the next timer, but never longer than the
             cap, so the legacy pollers still get serviced. */
         uint32_t now = NetNowMs();
-        uint32_t next = TimerNextDeadline();
+        uint32_t next = TimerNextDeadline(LEGACY_POLL_CAP);
         uint32_t sleep_ms;
         if (next == TIMER_NO_DEADLINE)
             sleep_ms = LEGACY_POLL_CAP;

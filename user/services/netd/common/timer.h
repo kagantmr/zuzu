@@ -23,7 +23,8 @@ typedef struct {
 void TimerInit(void);
 void TimerArm(Timer *t, uint32_t deadline_ms, void (*cb)(void *arg), void *arg);
 void TimerCancel(Timer *t);
-uint32_t TimerNextDeadline(void);
+/** @brief Earliest deadline due within @p within_ms from now, or TIMER_NO_DEADLINE. */
+uint32_t TimerNextDeadline(uint32_t within_ms);
 void TimerRunExpired(void);
 
 #endif
