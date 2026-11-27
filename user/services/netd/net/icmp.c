@@ -40,7 +40,7 @@ void IcmpRx(uint8_t *payload, size_t payload_len, Ipv4Addr src_ip)
         reply_hdr->checksum = 0;
         reply_hdr->checksum = htons(InetChecksum(reply, payload_len));
 
-        if (IpTx(reply, payload_len, netif.ip, src_ip, IP_PROTO_ICMP) != ZUZU_OK)
+        if (IpTx(reply, payload_len, NetifRoute(src_ip)->ip, src_ip, IP_PROTO_ICMP) != ZUZU_OK)
             LOG_WARN(LOG_TAG, "echo reply to %u.%u.%u.%u dropped (oversize?)", IP4(src_ip));
         free(reply);
         break;

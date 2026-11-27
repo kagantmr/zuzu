@@ -95,7 +95,7 @@ static void SocketWorker(void *arg)
 }
 
 /** @brief Print the usage line. */
-static void Usage(void) { printf("usage: nc [-u] destination port\n"); }
+static void Usage(void) { printf("usage: nc [-u] [-S netd-service] destination port\n"); }
 
 int main(int argc, char **argv)
 {
@@ -105,6 +105,10 @@ int main(int argc, char **argv)
         if (argv[i][0] == '-') {
             if (!strcmp(argv[i], "-u")) {
                 g_nc.udp = true;
+                continue;
+            }
+            if (!strcmp(argv[i], "-S") && i + 1 < argc) {
+                SockSetService(argv[++i]);
                 continue;
             }
             printf("nc: unsupported flag %s\n", argv[i]);

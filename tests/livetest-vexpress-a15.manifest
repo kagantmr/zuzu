@@ -1,5 +1,6 @@
 # zuzu initrd boot manifest v3
-# format: <program>|<role>[:flags][|<service-path>]
+# format: <program>|<role>[:flags][|<service-path>[|<args>]]
+# args: space-separated argv after the program name; an empty service-path (||) awaits nothing
 # role: none, file   flags: late
 # "file" is packed into the initrd but never spawned.
 

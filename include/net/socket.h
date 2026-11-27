@@ -182,6 +182,13 @@ typedef struct {
 #define SOCK_DGRAM_MAX 1472u
 
 /**
+ * @brief Picks the netd instance this app attaches to; call before the first SockOpen().
+ *
+ * @param[in] service Service name, e.g. "/svc/netd2"; the default is "/svc/netd". Must stay valid.
+ */
+void SockSetService(const char *service);
+
+/**
  * @brief Opens a socket, attaching to netd first if this is the app's first one.
  *
  * @param[in] kind SOCK_KIND_TCP or SOCK_KIND_UDP.

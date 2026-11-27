@@ -1,9 +1,13 @@
 # zuzu SD services manifest, staged to /etc/services.manifest
-# format: <program>|<role>[:flags][|<service-path>]  (same as boot.manifest)
+# format: <program>|<role>[:flags][|<service-path>[|<args>]]  (same as boot.manifest)
+# args: space-separated argv after the program name; an empty service-path (||) awaits nothing
 # Spawned by rootsvc once /svc/fsd is up; programs are staged into /sbin.
 # A service-path is awaited before the initrd's "late" entries are spawned.
 # An entry whose name already runs from the initrd is skipped.
 
 sbin/lan9118drv|none:prio=5,maxprio=5
 sbin/netd|none:prio=4,maxprio=4|/svc/netd
+# Test LAN host: a second netd joined to the router by a pseudo wire.
+sbin/netd|none:prio=4,maxprio=4|/svc/netd2|/svc/netd2 pwire0=192.168.50.2/24
+sbin/pwiredrv|none:prio=5,maxprio=5||/svc/netd /svc/netd2
 sbin/pl111drv|none:prio=1,maxprio=1

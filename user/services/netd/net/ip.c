@@ -58,8 +58,8 @@ void IpRx(NetInterface *nif, uint8_t *data, uint16_t len, const uint8_t *src_mac
     }
 
     uint16_t cs = InetChecksum(data, hdr_len);
-    if (cs || (hdr->dst_ip != nif->ip && hdr->dst_ip != BROADCAST_IP &&
-               hdr->dst_ip != NetifBroadcast(nif))) {
+    if (cs || (hdr->dst_ip != BROADCAST_IP && hdr->dst_ip != NetifBroadcast(nif) &&
+               NetifByIp(hdr->dst_ip) == NULL)) {
         return;
     }
 
@@ -141,7 +141,7 @@ int IpTx(uint8_t *payload, uint16_t payload_len, Ipv4Addr src_ip, Ipv4Addr dst_i
     /* Reserve room for the Ethernet + IP headers in front of the payload, then
        copy the caller's payload once into its final position in the slot. */
     TxFrame f;
-    int rc = TxFrameInit(&f, &netif, sizeof(EthHdr) + sizeof(IpHeader));
+    int rc = TxFrameInit(&f, NetifRoute(dst_ip), sizeof(EthHdr) + sizeof(IpHeader));
     if (rc != ZUZU_OK)
         return rc;
 

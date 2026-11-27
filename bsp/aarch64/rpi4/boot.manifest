@@ -1,5 +1,6 @@
 # zuzu initrd boot manifest v3
-# format: <program>|<role>[:flags][|<service-path>]
+# format: <program>|<role>[:flags][|<service-path>[|<args>]]
+# args: space-separated argv after the program name; an empty service-path (||) awaits nothing
 # a service-path is awaited in nsvc before any "late" entry is spawned
 # role: none, file   flags: late, prio=N, maxprio=N (comma separated)
 # "file" is packed into the initrd but never spawned.
@@ -13,6 +14,9 @@ bin/emmc2drv|none:prio=3,maxprio=3|/dev/mmc0
 bin/fsd|none:prio=3,maxprio=3|/svc/fsd
 bin/mboxdrv|none:prio=3,maxprio=3|/svc/mbox
 bin/genetv5drv|none:prio=5,maxprio=5
-bin/netd|none:prio=4,maxprio=4|/svc/netd
+bin/netd|none:prio=4,maxprio=4|/svc/netd|pwire0=192.168.50.1/24
+# Test LAN host: a second netd joined to the router by a pseudo wire.
+bin/netd|none:prio=4,maxprio=4|/svc/netd2|/svc/netd2 pwire0=192.168.50.2/24
+bin/pwiredrv|none:prio=5,maxprio=5||/svc/netd /svc/netd2
 bin/zzsh|tty:late
 bin/logsave|none:late

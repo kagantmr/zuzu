@@ -20,6 +20,7 @@
 #define INITRD_VA (USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE))
 #define SD_SERVICES_MANIFEST "/etc/services.manifest"
 #define MANIFEST_PATH_MAX 64
+#define MANIFEST_ARGS_MAX 192
 
 typedef enum {
     SOURCE_INITRD,
@@ -59,12 +60,20 @@ static void MonitorKitten(Handle task, Handle space, const char *path)
     Bind(EVENT_SPACE, g_monitor_ev, space, bit);
 }
 
+/** @brief argv for a manifest entry: strings back to back, as SpawnProcessAttr() takes them. */
+typedef struct {
+    char buf[MANIFEST_ARGS_MAX]; /**< argv[0] is the program's base name. */
+    size_t len;                  /**< Bytes used in buf. */
+    uint32_t argc;               /**< Strings in buf. */
+} KittenArgs;
+
 static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path,
-                        const SpawnAttr *attr)
+                        const SpawnAttr *attr, const KittenArgs *args)
 {
     Spid pid;
     Handle task;
-    Err rc = SpawnProcessAttr(zxf_data, zxf_size, path, NULL, 0, 0, attr, &pid, &task);
+    Err rc = SpawnProcessAttr(zxf_data, zxf_size, path, args->buf, args->len, args->argc, attr,
+                              &pid, &task);
     if (rc != ZUZU_OK) {
         UserspaceDebugLog("rootsvc: failed to spawn %s: %d", path, rc);
         return;
@@ -73,7 +82,7 @@ static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path,
     MonitorKitten(task, (Handle)pid, path);
 }
 
-static void SpawnKittenFromSd(const char *path, const SpawnAttr *attr)
+static void SpawnKittenFromSd(const char *path, const SpawnAttr *attr, const KittenArgs *args)
 {
     char sd_path[MANIFEST_PATH_MAX + 1];
     size_t n = strlen(path);
@@ -92,7 +101,7 @@ static void SpawnKittenFromSd(const char *path, const SpawnAttr *attr)
 
     Spid pid;
     Handle task;
-    rc = SpawnProcessObjAttr(obj, len, path, NULL, 0, 0, attr, &pid, &task);
+    rc = SpawnProcessObjAttr(obj, len, path, args->buf, args->len, args->argc, attr, &pid, &task);
     HandleClose(obj);
     if (rc != ZUZU_OK) {
         UserspaceDebugLog("rootsvc: failed to spawn %s: %d", sd_path, rc);
@@ -196,6 +205,38 @@ static void CheckKittenState(Kitten *k)
             RecordDeath(k, "exited", "status", (int32_t)tw.value);
         ReapKitten(k); /* tw.value = exit_status */
     }
+}
+
+/** @brief Put @p n bytes of @p s into @p a as one more argv string; false if they don't fit. */
+static bool ArgsPut(KittenArgs *a, const char *s, size_t n)
+{
+    if (a->len + n + 1 > sizeof(a->buf))
+        return false;
+    memcpy(a->buf + a->len, s, n);
+    a->buf[a->len + n] = '\0';
+    a->len += n + 1;
+    a->argc++;
+    return true;
+}
+
+/** @brief argv from the program's base name and the space-separated words in [p, end). */
+static bool ParseArgs(const char *path, const char *p, const char *end, KittenArgs *a)
+{
+    a->len = 0;
+    a->argc = 0;
+    const char *name = BaseName(path);
+    if (!ArgsPut(a, name, strlen(name)))
+        return false;
+    while (p && p < end) {
+        while (p < end && (*p == ' ' || *p == '\t' || *p == '\r'))
+            p++;
+        const char *w = p;
+        while (p < end && *p != ' ' && *p != '\t' && *p != '\r')
+            p++;
+        if (p > w && !ArgsPut(a, w, (size_t)(p - w)))
+            return false;
+    }
+    return true;
 }
 
 static bool VersionOk(void)
@@ -316,6 +357,21 @@ static void SpawnPass(const char *manifest, size_t manifest_size, ImageSource so
         const char *svc_path = field_end ? field_end + 1 : NULL;
         if (!field_end)
             field_end = line_end;
+        const char *svc_end = line_end;
+        const char *arg_start = NULL;
+        if (svc_path) {
+            const char *bar = memchr(svc_path, '|', (size_t)(line_end - svc_path));
+            if (bar) {
+                svc_end = bar;
+                arg_start = bar + 1;
+            }
+        }
+        KittenArgs args;
+        if (!ParseArgs(path, arg_start, line_end, &args)) {
+            UserspaceDebugLog("rootsvc: arguments too long for %s, skipping", path);
+            line = next;
+            continue;
+        }
 
         SpawnAttr attr = {.prio = SPAWN_PRIO_INHERIT, .max_prio = SPAWN_PRIO_INHERIT};
         const char *colon = memchr(role, ':', (size_t)(field_end - role));
@@ -335,12 +391,12 @@ static void SpawnPass(const char *manifest, size_t manifest_size, ImageSource so
         }
 
         if (source == SOURCE_SD) {
-            if (KittenNamed(path)) {
+            if (args.argc == 1 && KittenNamed(path)) {
                 UserspaceDebugLog("rootsvc: %s already runs from initrd, skipping SD copy", path);
                 line = next;
                 continue;
             }
-            SpawnKittenFromSd(path, &attr);
+            SpawnKittenFromSd(path, &attr, &args);
         } else {
             const void *zxf_data;
             size_t zxf_size;
@@ -349,11 +405,11 @@ static void SpawnPass(const char *manifest, size_t manifest_size, ImageSource so
                 line = next;
                 continue;
             }
-            SpawnKitten(zxf_data, zxf_size, path, &attr);
+            SpawnKitten(zxf_data, zxf_size, path, &attr, &args);
         }
 
-        if (!late_pass && svc_path && svc_path < line_end && g_awaited_count < MAX_AWAITED) {
-            size_t n = (size_t)(line_end - svc_path);
+        if (!late_pass && svc_path && svc_path < svc_end && g_awaited_count < MAX_AWAITED) {
+            size_t n = (size_t)(svc_end - svc_path);
             while (n > 0 && (svc_path[n - 1] == '\r' || svc_path[n - 1] == ' '))
                 n--;
             if (n > 0 && n < NS_MAX_PATH) {

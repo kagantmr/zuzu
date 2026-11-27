@@ -103,7 +103,7 @@ void UdpRecv(void *data, uint16_t len, Ipv4Addr src_ip, Ipv4Addr dst_ip)
 int UdpSend(Ipv4Addr dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *payload,
             uint16_t payload_len)
 {
-    return UdpSendVia(&netif, dst_ip, src_port, dst_port, payload, payload_len);
+    return UdpSendVia(NetifRoute(dst_ip), dst_ip, src_port, dst_port, payload, payload_len);
 }
 
 int UdpSendVia(NetInterface *nif, Ipv4Addr dst_ip, NetPort src_port, NetPort dst_port,

@@ -53,6 +53,10 @@ static Err SockCall(Handle port, const void *req, uint32_t len, Handle grant, Ha
     return MsgCallStatus(port, req, len, grant, granted);
 }
 
+static const char *g_service = "/svc/netd";
+
+void SockSetService(const char *service) { g_service = service; }
+
 /**
  * @brief Attaches to netd once: hands it a liveness port and this app's event, and takes its
  * doorbell.
@@ -67,7 +71,7 @@ static Err Attach(void)
     if (g_client.attached)
         return ZUZU_OK;
 
-    Handle netd = LookupService("/svc/netd");
+    Handle netd = LookupService(g_service);
     if (netd < 0)
         return ERR_SYSDOWN;
 

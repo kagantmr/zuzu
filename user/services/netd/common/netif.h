@@ -44,8 +44,11 @@ extern NetInterface netifs[NETIF_MAX];
 /** @brief Numbers every slot of netifs[]; call once at startup. */
 void NetifInit(void);
 
-/** @brief The only interface until routing picks one per packet. */
-#define netif (netifs[0])
+/** @brief Default interface: the attached one with a gateway, else the first attached one. */
+NetInterface *NetifDefault(void);
+
+/** @brief The interface single-interface code uses until routing picks one per packet. */
+#define netif (*NetifDefault())
 
 /** @brief Whether a driver has attached to @p n. */
 static inline bool NetifAttached(const NetInterface *n) { return n->drv.rx_ring != NULL; }
@@ -58,5 +61,11 @@ static inline bool NetifOnLink(const NetInterface *n, Ipv4Addr ip)
 {
     return ((ip ^ n->ip) & n->netmask) == 0;
 }
+
+/** @brief Interface to send to @p dst on: the one whose subnet holds it, else the one with a gateway. */
+NetInterface *NetifRoute(Ipv4Addr dst);
+
+/** @brief The attached interface that owns address @p ip, or NULL. */
+NetInterface *NetifByIp(Ipv4Addr ip);
 
 #endif /* NETD_NETIF_H */

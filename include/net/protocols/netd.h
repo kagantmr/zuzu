@@ -61,8 +61,15 @@ typedef struct {
     NetdOpcode op; /**< The opcode. */
 } NetdHandshakeData;
 
+/** @brief Request for NETD_GET_NETIF: the first attached interface at slot @c index or later. */
+typedef struct {
+    uint8_t op;    /**< NETD_GET_NETIF. */
+    uint8_t index; /**< First slot to look at; 0 starts the walk. */
+} NetdGetNetif;
+
 /** @brief One network interface's configuration, as NETD_GET_NETIF returns it. */
 typedef struct {
+    uint32_t index;   /**< Slot this interface is in; ask for index + 1 to continue the walk. */
     Ipv4Addr ip;      /**< Interface address. */
     Ipv4Addr netmask; /**< Subnet mask. */
     Ipv4Addr gateway; /**< Default gateway. */
@@ -79,7 +86,8 @@ typedef struct {
 /** @brief Request for NETD_SET_RXFILTER: the whole receive filter, replacing the current one. */
 typedef struct {
     uint8_t op;           /**< NETD_SET_RXFILTER. */
-    uint8_t _pad[3];      /**< Keeps the words below aligned. */
+    uint8_t _pad[2];      /**< Zero, so the first word never reads as a SOCK_* command. */
+    uint8_t index;        /**< Slot of the interface, as NetdNetif.index gives it. */
     uint32_t flags;       /**< NIC_CNTL_PROMISC and NIC_CNTL_ALLMULTI; other bits are ignored. */
     uint32_t mcast_count; /**< Number of entries in mcast, at most NIC_MCAST_MAX. */
     MacAddr mcast[NIC_MCAST_MAX]; /**< Multicast addresses to accept. */
