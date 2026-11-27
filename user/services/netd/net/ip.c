@@ -58,14 +58,16 @@ void IpRx(NetInterface *nif, uint8_t *data, uint16_t len, const uint8_t *src_mac
     }
 
     uint16_t cs = InetChecksum(data, hdr_len);
-    if (cs || (hdr->dst_ip != BROADCAST_IP && hdr->dst_ip != NetifBroadcast(nif) &&
-               NetifByIp(hdr->dst_ip) == NULL)) {
+    bool local = nif == &netif_lo || hdr->dst_ip == BROADCAST_IP ||
+                 hdr->dst_ip == NetifBroadcast(nif) || NetifByIp(hdr->dst_ip) != NULL;
+    if (cs || !local) {
         return;
     }
 
     /* Header is valid and addressed to us so it's safe to cache the L2/L3
        mapping of the sender. */
-    ArpLearn(nif, hdr->src_ip, src_mac);
+    if (nif != &netif_lo)
+        ArpLearn(nif, hdr->src_ip, src_mac);
 
     if (ntohs(hdr->flags_fragment_offset) & IP_FLAG_MF ||
         ntohs(hdr->flags_fragment_offset) & 0x1FFF) {
@@ -125,6 +127,11 @@ int IpSend(TxFrame *f, Ipv4Addr src_ip, Ipv4Addr dst_ip, uint8_t protocol)
        the header stays the real destination -- only the L2 target changes.
        Limited broadcast stays direct. Degenerate one-route case of what becomes
        a route lookup when multiple interfaces/routes exist. */
+    if (f->nif == &netif_lo) {
+        MacAddr none = {0};
+        return EthSendFrame(f, none, ETH_TYPE_IP);
+    }
+
     Ipv4Addr next_hop = dst_ip;
     if (dst_ip != BROADCAST_IP && !NetifOnLink(f->nif, dst_ip))
         next_hop = f->nif->gateway;

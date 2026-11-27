@@ -157,13 +157,13 @@ static Err SetRxFilter(NetInterface *nif, const NetdRxFilter *req)
     return Signal(nif->drv.doorbell, NIC_DOORBELL_CNTL, false);
 }
 
-/** @brief First attached interface at slot @p start or later, or NULL. */
+/** @brief First attached interface at slot @p start or later, then lo, or NULL. */
 static NetInterface *NetifFrom(unsigned start)
 {
     for (unsigned i = start; i < NETIF_MAX; i++)
         if (NetifAttached(&netifs[i]))
             return &netifs[i];
-    return NULL;
+    return start <= NETIF_MAX ? &netif_lo : NULL;
 }
 
 static void CtlReject(Err err, Handle granted)
@@ -335,6 +335,8 @@ int main(int argc, char **argv)
             sleep_ms = TIMEOUT_POLL; /* already overdue: don't block */
         else
             sleep_ms = next - now > LEGACY_POLL_CAP ? LEGACY_POLL_CAP : next - now;
+        if (PacketRingPeek(netif_lo.drv.rx_ring))
+            sleep_ms = TIMEOUT_POLL;
 
         /* 2. one wait for the driver, the ctl mailbox and every session */
         EventWaitResult ev = WaitOnEvent(g_event, sleep_ms, 0, false);
@@ -347,6 +349,13 @@ int main(int argc, char **argv)
                 EthRx(&netifs[i], frame->data, (uint16_t)frame->len);
                 PacketRingConsume(netifs[i].drv.rx_ring);
             }
+        }
+        for (int budget = NIC_RING_DEPTH;
+             budget > 0 && (frame = PacketRingPeek(netif_lo.drv.rx_ring)) != NULL; budget--) {
+            netif_lo.drv.stats->stat[NIC_STAT_TX_PACKETS]++;
+            netif_lo.drv.stats->stat[NIC_STAT_RX_PACKETS]++;
+            EthRx(&netif_lo, frame->data, (uint16_t)frame->len);
+            PacketRingConsume(netif_lo.drv.rx_ring);
         }
 
         PortWaitResult call;

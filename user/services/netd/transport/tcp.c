@@ -11,7 +11,8 @@
 
 int TcpConnect(Ipv4Addr remote_ip, NetPort remote_port, const TcpCallbacks *cb, void *ctx)
 {
-    if (netif.ip == 0)
+    Ipv4Addr local_ip = NetifSource(NetifRoute(remote_ip), remote_ip);
+    if (local_ip == 0)
         return ERR_NOTCONN;
     int idx = TcpPcbAlloc();
     if (idx < 0)
@@ -19,7 +20,7 @@ int TcpConnect(Ipv4Addr remote_ip, NetPort remote_port, const TcpCallbacks *cb, 
     TcpPcb *pcb = &tcp_pcbs[idx];
     pcb->remote_ip = remote_ip;
     pcb->remote_port = remote_port;
-    pcb->local_ip = netif.ip;
+    pcb->local_ip = local_ip;
     pcb->local_port = PortAlloc();
     if (pcb->local_port == 0) {
         TcpPcbRelease(pcb, ZUZU_OK);
@@ -52,7 +53,7 @@ int TcpListen(int port, int backlog, const TcpCallbacks *cb, void *ctx)
         return ERR_NOMEM;
     TcpPcb *pcb = &tcp_pcbs[slot];
     pcb->active = true; /* memset cleared it, set it back */
-    pcb->local_ip = netif.ip;
+    pcb->local_ip = 0;
     pcb->local_port = port;
     pcb->state = TCP_LISTENING;
     pcb->backlog = backlog > 0 ? backlog : TCP_LISTEN_BACKLOG;

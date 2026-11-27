@@ -8,6 +8,7 @@
 #define NETD_NETIF_H
 
 #include "globals.h"
+#include <convert.h>
 #include <net/packetring.h>
 #include <net/protocols/nic.h>
 
@@ -41,6 +42,9 @@ typedef struct {
 /** @brief Interface table. */
 extern NetInterface netifs[NETIF_MAX];
 
+/** @brief Loopback interface: owns 127.0.0.0/8 and carries traffic to netd's own addresses. */
+extern NetInterface netif_lo;
+
 /** @brief Numbers every slot of netifs[]; call once at startup. */
 void NetifInit(void);
 
@@ -62,7 +66,16 @@ static inline bool NetifOnLink(const NetInterface *n, Ipv4Addr ip)
     return ((ip ^ n->ip) & n->netmask) == 0;
 }
 
-/** @brief Interface to send to @p dst on: the one whose subnet holds it, else the one with a gateway. */
+/** @brief Whether @p ip is in 127.0.0.0/8. */
+static inline bool Ipv4IsLoopback(Ipv4Addr ip) { return (ntohl(ip) >> 24) == 127; }
+
+/** @brief Source address for a packet to @p dst sent through @p n. */
+static inline Ipv4Addr NetifSource(const NetInterface *n, Ipv4Addr dst)
+{
+    return n == &netif_lo ? dst : n->ip;
+}
+
+/** @brief Interface to send to @p dst on: lo for local addresses, the one whose subnet holds it, else the one with a gateway. */
 NetInterface *NetifRoute(Ipv4Addr dst);
 
 /** @brief The attached interface that owns address @p ip, or NULL. */

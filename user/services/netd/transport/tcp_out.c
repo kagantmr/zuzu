@@ -53,7 +53,7 @@ int TcpOutput(TcpPcb *pcb, uint8_t flags, uint16_t data_len)
     }
 
     TxFrame f;
-    int rc = TxFrameInit(&f, &netif, sizeof(EthHdr) + sizeof(IpHeader));
+    int rc = TxFrameInit(&f, NetifRoute(pcb->remote_ip), sizeof(EthHdr) + sizeof(IpHeader));
     if (rc != ZUZU_OK)
         return rc;
 

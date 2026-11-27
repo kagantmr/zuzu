@@ -49,5 +49,7 @@ int EthSendFrame(TxFrame *f, MacAddr dst_mac, uint16_t ethertype)
     /* Header lands at slot->data[0], the whole frame is now contiguous. */
     f->slot->len = TxFrameLen(f);
     PacketRingCommit(f->nif->drv.tx_ring);
+    if (f->nif->drv.doorbell < 0)
+        return ZUZU_OK;
     return Signal(f->nif->drv.doorbell, NIC_DOORBELL_TX, false);
 }

@@ -414,13 +414,13 @@ static void OnListening(TcpPcb *listener, const TcpSegment *s)
 
     int nidx = TcpPcbAlloc();
     if (nidx < 0) {
-        TcpSendRst(s->src_ip, netif.ip, s);
+        TcpSendRst(s->src_ip, s->dst_ip, s);
         return;
     }
     TcpPcb *np = &tcp_pcbs[nidx];
     np->parent = TcpPcbIndex(listener) + 1;
     np->active = true;
-    np->local_ip = netif.ip;
+    np->local_ip = s->dst_ip;
     np->local_port = listener->local_port; /* same port we listen on */
     np->remote_ip = s->src_ip;
     np->remote_port = s->src_port;
@@ -468,13 +468,13 @@ static void OnSynRcvd(TcpPcb *pcb, const TcpSegment *s)
 
 static void TcpDispatch(Ipv4Addr src_ip, Ipv4Addr dst_ip, const TcpSegment *seg)
 {
-    int slot = TcpPcbFind(netif.ip, seg->dst_port, src_ip, seg->src_port);
+    int slot = TcpPcbFind(dst_ip, seg->dst_port, src_ip, seg->src_port);
     if (slot < 0) {
         if ((seg->flags & TCP_SYN) && !(seg->flags & TCP_ACK))
-            slot = TcpPcbFindListener(netif.ip, seg->dst_port);
+            slot = TcpPcbFindListener(dst_ip, seg->dst_port);
         if (slot < 0) {
-            LOG_DEBUG(LOG_TAG, "no PCB: dst_port=%u netif.ip=%u.%u.%u.%u flags=0x%02x",
-                     seg->dst_port, IP4(netif.ip), seg->flags);
+            LOG_DEBUG(LOG_TAG, "no PCB: %u.%u.%u.%u:%u flags=0x%02x", IP4(dst_ip),
+                      seg->dst_port, seg->flags);
             if (!(seg->flags & TCP_RST))
                 TcpSendRst(src_ip, dst_ip, seg);
             return;
@@ -568,6 +568,7 @@ void TcpRx(Ipv4Addr src_ip, Ipv4Addr dst_ip, const uint8_t *data, uint16_t len)
         return;
 
     TcpSegment seg = {.src_ip = src_ip,
+                      .dst_ip = dst_ip,
                       .src_port = ntohs(th->src_port),
                       .dst_port = ntohs(th->dst_port),
                       .seq = ntohl(th->seq),

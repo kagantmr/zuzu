@@ -135,6 +135,7 @@ typedef struct {
 
 typedef struct {
     Ipv4Addr src_ip;
+    Ipv4Addr dst_ip; /**< Address the segment was sent to. */
     NetPort src_port;
     NetPort dst_port;
     uint32_t seq; /* their sequence number */

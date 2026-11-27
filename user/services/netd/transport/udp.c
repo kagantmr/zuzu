@@ -139,8 +139,9 @@ int UdpSendVia(NetInterface *nif, Ipv4Addr dst_ip, NetPort src_port, NetPort dst
     /* Checksum covers the pseudo-header and the whole contiguous segment. A
        computed value of 0 is transmitted as 0xFFFF so the receiver doesn't
        mistake it for "no checksum" (RFC 768). */
-    uint16_t cs = htons(UdpChecksum(nif->ip, dst_ip, TxFrameData(&f), TxFrameLen(&f)));
+    Ipv4Addr src_ip = NetifSource(nif, dst_ip);
+    uint16_t cs = htons(UdpChecksum(src_ip, dst_ip, TxFrameData(&f), TxFrameLen(&f)));
     hdr->checksum = cs ? cs : 0xFFFF;
 
-    return IpSend(&f, nif->ip, dst_ip, IP_PROTO_UDP);
+    return IpSend(&f, src_ip, dst_ip, IP_PROTO_UDP);
 }

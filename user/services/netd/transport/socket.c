@@ -442,14 +442,14 @@ Err SocketListen(Socket *s, NetPort port, int backlog)
         return ERR_BUSY;
     if (port == 0)
         return ERR_BADARG;
-    if (TcpPcbFindListener(netif.ip, port) >= 0)
+    if (TcpPcbFindListener(0, port) >= 0)
         return ERR_DUPLICATE;
     int slot = TcpListen(port, backlog, &g_sock_cb, s);
     if (slot < 0)
         return slot;
     s->pcb = slot;
     s->listener = true;
-    s->shm->local_ip = netif.ip;
+    s->shm->local_ip = 0;
     s->shm->local_port = port;
     s->shm->state = SOCK_STATE_LISTENING;
     return ZUZU_OK;

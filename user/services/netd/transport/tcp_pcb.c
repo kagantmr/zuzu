@@ -83,7 +83,8 @@ int TcpPcbFindListener(Ipv4Addr local_ip, NetPort local_port)
 {
     for (int i = 0; i < TCP_MAX_PCB; i++) {
         if (tcp_pcbs[i].active && tcp_pcbs[i].state == TCP_LISTENING &&
-            tcp_pcbs[i].local_ip == local_ip && tcp_pcbs[i].local_port == local_port) {
+            (tcp_pcbs[i].local_ip == 0 || tcp_pcbs[i].local_ip == local_ip) &&
+            tcp_pcbs[i].local_port == local_port) {
             return i;
         }
     }
