@@ -25,7 +25,7 @@ extern "C" {
 #include <net/protocols/netd.h>
 
 /** @brief Bytes in each ring, per direction; a power of two. */
-#define SOCK_RING_SIZE 8192u
+#define SOCK_RING_SIZE 65536u
 
 /**
  * @brief First socket command number.
